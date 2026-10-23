@@ -20,12 +20,22 @@ codemv 是一个桌面应用（PySide6）：你描述画面，AI 生成渲染代
 
 ## 快速开始
 
+### Windows：双击运行（推荐）
+
+1. 双击 **`install.cmd`** —— 自动查找 Python 并安装依赖（默认源失败时自动改用清华镜像）
+2. 双击 **`run.cmd`** —— 启动 codemv
+
+> 如果 `pip` / `python` 命令不可用（PATH 未配置），这两个脚本会自动改用 `py` 启动器绕过问题。
+> 想确认环境是否就绪，可在终端执行：`run.cmd --check`。
+
+### 命令行方式
+
 ```powershell
 # 1. 安装依赖（Python 3.10+）
-pip install -r requirements.txt
+py -m pip install -r requirements.txt
 
 # 2. 启动桌面应用
-python -m codemv gui
+py -m codemv gui
 ```
 
 首次使用 AI 生成前，点击右上角 **设置** 图标，填写：
@@ -96,6 +106,8 @@ code-frame-studio/
 ├── tests/                  # unittest 测试集
 ├── docs/screenshot.png
 ├── output/                 # 渲染产物（已 gitignore）
+├── run.cmd                 # Windows 双击启动
+├── install.cmd             # Windows 双击安装依赖
 ├── requirements.txt
 └── agents.md               # 开发约定
 ```
@@ -115,6 +127,27 @@ python -m unittest discover -s tests -v
 - 检查顺序：GitHub Releases 最新版 → 仓库最新 Tag
 - 发现新版本时顶部出现提示条，可点击「立即更新」执行 `git pull --ff-only`
 - 设置中可开关「自动检查更新」「自动安装更新」
+
+## 常见问题
+
+### 提示 `'pip' 不是内部或外部命令` / `'python' 不是内部或外部命令`
+
+说明 Python 已安装但没有加入 PATH（或 `python` 命中了 Microsoft Store 的占位程序）。三种解决方式：
+
+1. 直接双击 `install.cmd` / `run.cmd`，脚本会自动使用 `py` 启动器；
+2. 手动执行 `py -m pip install -r requirements.txt`、`py -m codemv gui`；
+3. 把 Python 加入 PATH：重新运行 Python 安装包 → Modify → 勾选 **Add Python to PATH**，
+   然后重新打开终端。需要手动添加时，把下面两个目录写入用户环境变量 `Path`：
+
+   ```
+   C:\Users\<用户名>\AppData\Local\Programs\Python\Python3XX\
+   C:\Users\<用户名>\AppData\Local\Programs\Python\Python3XX\Scripts\
+   ```
+
+### 提示找不到 ffmpeg
+
+安装依赖时 `imageio-ffmpeg` 已经自带 ffmpeg 二进制，无需单独安装；
+如果使用系统 ffmpeg，可设置环境变量 `CODEMV_FFMPEG` 指向 `ffmpeg.exe`。
 
 ## 路线图
 
