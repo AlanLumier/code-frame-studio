@@ -6,6 +6,7 @@ from pathlib import Path
 
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "prompts" / "scene_prompt.md"
 MV_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "prompts" / "mv_prompt.md"
+P5_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "prompts" / "p5_prompt.md"
 
 _FALLBACK_TEMPLATE = """# 场景代码生成任务
 
@@ -48,21 +49,27 @@ def build_mv_prompt(description: str, orientation: str = "竖屏 1080×1920（9:
     return template.replace("{{description}}", description).replace("{{orientation}}", orientation)
 
 
-def build_mv_generation_prompt(
-    *,
+def build_p5_prompt(description: str) -> str:
+    """把歌曲描述填入 p5.brush 场景生成提示词模板。"""
+    description = (description or "").strip()
+    if not description:
+        raise ValueError("歌曲描述不能为空")
+    try:
+        template = P5_TEMPLATE_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        template = "请用 p5.brush 生成一个 drawScene(t, ctx) 场景：{{description}}"
+    return template.replace("{{description}}", description)
+
+
+def _song_context(
     song_name: str,
     duration: float,
     bpm: float,
     beat_count: int,
     lyrics_lines: list[str],
-    idea: str = "",
 ) -> str:
-    """把歌曲信息与歌词注入 MV 场景生成模板，交给 AI 生成画面代码。"""
-    idea = (idea or "").strip() or f"围绕《{song_name}》的情绪与歌词意象自由创作"
-    base = build_mv_prompt(idea)
-
     lyrics_block = "\n".join(lyrics_lines) if lyrics_lines else "（这首歌没有提供歌词）"
-    context = f"""
+    return f"""
 
 ## 这首歌的真实数据（请严格据此设计画面）
 
@@ -80,6 +87,33 @@ def build_mv_generation_prompt(
 1. 画面意象必须来自上面的歌词与歌曲情绪，不要用无关的通用背景。
 2. 在节拍点（ctx.beat 接近 1 时）让光晕、波浪、镜头或元素有明显的反馈，做到卡点。
 3. 歌名、歌手、歌词文字都不要画进画面（歌词由渲染器统一叠加）。
-4. 只输出完整的 Python 代码。
+4. 只输出完整的场景代码。
 """
-    return base + context
+
+
+def build_p5_generation_prompt(
+    *,
+    song_name: str,
+    duration: float,
+    bpm: float,
+    beat_count: int,
+    lyrics_lines: list[str],
+    idea: str = "",
+) -> str:
+    """把歌曲信息与歌词注入 p5.brush 模板，交给 AI 生成 JS 场景代码。"""
+    idea = (idea or "").strip() or f"围绕《{song_name}》的情绪与歌词意象自由创作"
+    return build_p5_prompt(idea) + _song_context(song_name, duration, bpm, beat_count, lyrics_lines)
+
+
+def build_mv_generation_prompt(
+    *,
+    song_name: str,
+    duration: float,
+    bpm: float,
+    beat_count: int,
+    lyrics_lines: list[str],
+    idea: str = "",
+) -> str:
+    """把歌曲信息与歌词注入 MV 模板，交给 AI 生成 Python 场景代码。"""
+    idea = (idea or "").strip() or f"围绕《{song_name}》的情绪与歌词意象自由创作"
+    return build_mv_prompt(idea) + _song_context(song_name, duration, bpm, beat_count, lyrics_lines)

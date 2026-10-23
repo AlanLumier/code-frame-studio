@@ -1,0 +1,12 @@
+{
+  "name": "codemv-p5-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "codemv p5.brush hand-drawn renderer backend",
+  "dependencies": {
+    "p5": "2.3.4",
+    "p5.brush": "2.2.3",
+    "puppeteer-core": "25.16.0"
+  }
+}

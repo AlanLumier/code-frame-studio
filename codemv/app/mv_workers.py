@@ -10,7 +10,8 @@ from PySide6.QtCore import QThread, Signal
 from codemv.audio import AudioAnalysis, analyze_audio
 from codemv.lyrics import load_lyrics
 from codemv.mv import build_context, draw_lyrics, load_mv_scene, render_mv
-from codemv.prompt import build_mv_generation_prompt
+from codemv.p5_backend import render_p5_mv, render_p5_preview
+from codemv.prompt import build_mv_generation_prompt, build_p5_generation_prompt
 
 from .ai_client import AIClientError, chat_completion, extract_python_code
 from .settings import AppSettings
@@ -264,3 +265,223 @@ class MVRenderWorker(QThread):
             self.done.emit(str(output))
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(f"渲染失败：{exc}")
+
+
+class P5SceneAIWorker(QThread):
+    """让 AI 生成 p5.brush 手绘场景，并用 headless 浏览器试渲染一帧。"""
+
+    status = Signal(str)
+    done = Signal(str, str)  # scene_js_path, preview_png_path
+    failed = Signal(str)
+
+    MAX_ATTEMPTS = 3
+
+    def __init__(
+        self,
+        *,
+        audio_name: str,
+        analysis: AudioAnalysis,
+        lyrics_path: Path | None,
+        idea: str,
+        settings: AppSettings,
+        scenes_dir: Path,
+        output_dir: Path,
+        width: int = 540,
+        height: int = 960,
+    ) -> None:
+        super().__init__()
+        self._audio_name = audio_name
+        self._analysis = analysis
+        self._lyrics_path = lyrics_path
+        self._idea = idea
+        self._settings = settings
+        self._scenes_dir = scenes_dir
+        self._output_dir = output_dir
+        self._width = width
+        self._height = height
+
+    def run(self) -> None:
+        try:
+            lyrics = (
+                load_lyrics(self._lyrics_path, duration=self._analysis.duration)
+                if self._lyrics_path
+                else None
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"歌词读取失败：{exc}")
+            return
+
+        lyrics_lines = []
+        if lyrics is not None:
+            for line in lyrics.lines[:30]:
+                minutes, seconds = divmod(int(line.start), 60)
+                lyrics_lines.append(f"[{minutes:02d}:{seconds:02d}] {line.text}")
+
+        prompt = build_p5_generation_prompt(
+            song_name=Path(self._audio_name).stem,
+            duration=self._analysis.duration,
+            bpm=self._analysis.bpm,
+            beat_count=len(self._analysis.beats),
+            lyrics_lines=lyrics_lines,
+            idea=self._idea,
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是用 p5.js + p5.brush 制作逐帧手绘动画的图形程序员。"
+                    "你只输出一个完整的 JavaScript 场景文件，不要输出 Markdown 代码围栏之外的内容。"
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        preview_seconds = max(0.5, min(self._analysis.duration - 0.2, self._analysis.duration * 0.35))
+        self._scenes_dir.mkdir(parents=True, exist_ok=True)
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            self.status.emit(f"AI 正在绘制手绘场景（第 {attempt}/{self.MAX_ATTEMPTS} 次）…")
+            try:
+                reply = chat_completion(
+                    messages,
+                    base_url=self._settings.api_base_url,
+                    api_key=self._settings.api_key,
+                    model=self._settings.model,
+                )
+                code = extract_python_code(reply)
+            except AIClientError as exc:
+                self.failed.emit(str(exc))
+                return
+
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            scene_path = self._scenes_dir / f"generated_p5_{stamp}.js"
+            scene_path.write_text(code, encoding="utf-8")
+
+            self.status.emit("正在用 headless 浏览器试渲染一帧…")
+            try:
+                preview_path = self._output_dir / f"{scene_path.stem}_preview.png"
+                render_p5_preview(
+                    scene_path,
+                    self._analysis,
+                    lyrics,
+                    preview_seconds,
+                    preview_path,
+                    width=self._width,
+                    height=self._height,
+                )
+            except Exception as exc:  # noqa: BLE001 - 交回模型修复
+                scene_path.unlink(missing_ok=True)
+                messages.append({"role": "assistant", "content": reply})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "上面的 p5.brush 代码试渲染时报错：\n"
+                            f"{exc}\n"
+                            "请修复并输出修复后的完整 JavaScript 代码，不要输出其他内容。"
+                        ),
+                    }
+                )
+                self.status.emit("手绘代码运行出错，正在让 AI 修正…")
+                continue
+
+            self.status.emit("手绘画面已生成。")
+            self.done.emit(str(scene_path), str(preview_path))
+            return
+
+        self.failed.emit("生成失败：多次尝试后 p5.brush 代码仍无法运行，请换一个描述再试。")
+
+
+class P5PreviewWorker(QThread):
+    """用 p5.brush 渲染指定秒数的预览帧。"""
+
+    done = Signal(str)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        *,
+        scene_path: Path,
+        analysis: AudioAnalysis,
+        lyrics_path: Path | None,
+        seconds: float,
+        out_path: Path,
+        width: int = 540,
+        height: int = 960,
+    ) -> None:
+        super().__init__()
+        self._scene_path = scene_path
+        self._analysis = analysis
+        self._lyrics_path = lyrics_path
+        self._seconds = seconds
+        self._out_path = out_path
+        self._width = width
+        self._height = height
+
+    def run(self) -> None:
+        try:
+            lyrics = (
+                load_lyrics(self._lyrics_path, duration=self._analysis.duration)
+                if self._lyrics_path
+                else None
+            )
+            render_p5_preview(
+                self._scene_path,
+                self._analysis,
+                lyrics,
+                self._seconds,
+                self._out_path,
+                width=self._width,
+                height=self._height,
+            )
+            self.done.emit(str(self._out_path))
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"手绘预览失败：{exc}")
+
+
+class P5RenderWorker(QThread):
+    """用 p5.brush 渲染整支 MV。"""
+
+    progress = Signal(int, int)
+    done = Signal(str)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        *,
+        scene_path: Path,
+        audio_path: Path,
+        lyrics_path: Path | None,
+        out_path: Path,
+        fps: int,
+        width: int,
+        height: int,
+        max_seconds: float | None,
+    ) -> None:
+        super().__init__()
+        self._scene_path = scene_path
+        self._audio_path = audio_path
+        self._lyrics_path = lyrics_path
+        self._out_path = out_path
+        self._fps = fps
+        self._width = width
+        self._height = height
+        self._max_seconds = max_seconds
+
+    def run(self) -> None:
+        try:
+            output = render_p5_mv(
+                self._scene_path,
+                self._audio_path,
+                self._out_path,
+                lyrics_path=self._lyrics_path,
+                fps=self._fps,
+                width=self._width,
+                height=self._height,
+                max_seconds=self._max_seconds,
+                progress_callback=lambda current, total: self.progress.emit(current, total),
+            )
+            self.done.emit(str(output))
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"手绘渲染失败：{exc}")

@@ -55,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     mv.add_argument("scene", help="MV 场景文件路径，例如 scenes/mv_night_sea.py")
     mv.add_argument("--audio", required=True, help="音频文件路径（mp3 / wav / m4a 等）")
     mv.add_argument("--lyrics", default=None, help="歌词文件路径（.lrc）；留空则不显示歌词")
+    mv.add_argument("--engine", choices=["python", "p5"], default="python", help="渲染引擎（python=内置矢量，p5=p5.brush 手绘）")
     mv.add_argument("-o", "--output", default="output/mv.mp4", help="输出 mp4 路径")
     mv.add_argument("--fps", type=int, default=24, help="帧率（默认 24）")
     mv.add_argument("--width", type=int, default=1080, help="画面宽度（默认 1080）")
@@ -64,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     mv_preview.add_argument("scene", help="MV 场景文件路径")
     mv_preview.add_argument("--audio", required=True, help="音频文件路径")
     mv_preview.add_argument("--lyrics", default=None, help="歌词文件路径（.lrc）")
+    mv_preview.add_argument("--engine", choices=["python", "p5"], default="python", help="渲染引擎（python / p5）")
     mv_preview.add_argument("-t", "--seconds", type=float, default=0.0, help="秒数（默认 0）")
     mv_preview.add_argument("-o", "--output", default="output/mv_preview.png", help="输出图片路径")
     mv_preview.add_argument("--width", type=int, default=1080, help="画面宽度（默认 1080）")
@@ -103,26 +105,56 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(build_scene_prompt(args.description))
         elif args.command == "mv":
-            output = render_mv(
-                args.scene,
-                args.audio,
-                args.output,
-                lyrics_path=args.lyrics,
-                fps=args.fps,
-                width=args.width,
-                height=args.height,
-            )
+            if args.engine == "p5":
+                from .p5_backend import render_p5_mv
+
+                output = render_p5_mv(
+                    args.scene,
+                    args.audio,
+                    args.output,
+                    lyrics_path=args.lyrics,
+                    fps=args.fps,
+                    width=args.width,
+                    height=args.height,
+                )
+            else:
+                output = render_mv(
+                    args.scene,
+                    args.audio,
+                    args.output,
+                    lyrics_path=args.lyrics,
+                    fps=args.fps,
+                    width=args.width,
+                    height=args.height,
+                )
             print(f"MV 已生成：{output}")
         elif args.command == "mv-preview":
-            output = render_mv_preview(
-                args.scene,
-                args.audio,
-                args.output,
-                seconds=args.seconds,
-                lyrics_path=args.lyrics,
-                width=args.width,
-                height=args.height,
-            )
+            if args.engine == "p5":
+                from .audio import analyze_audio
+                from .lyrics import load_lyrics
+                from .p5_backend import render_p5_preview
+
+                analysis = analyze_audio(args.audio)
+                lyrics = load_lyrics(args.lyrics, duration=analysis.duration) if args.lyrics else None
+                output = render_p5_preview(
+                    args.scene,
+                    analysis,
+                    lyrics,
+                    args.seconds,
+                    args.output,
+                    width=args.width,
+                    height=args.height,
+                )
+            else:
+                output = render_mv_preview(
+                    args.scene,
+                    args.audio,
+                    args.output,
+                    seconds=args.seconds,
+                    lyrics_path=args.lyrics,
+                    width=args.width,
+                    height=args.height,
+                )
             print(f"MV 预览帧已生成：{output}")
         elif args.command == "gui":
             try:

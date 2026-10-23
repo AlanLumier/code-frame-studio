@@ -79,6 +79,8 @@ class GuiSmokeTest(unittest.TestCase):
             self.assertFalse(window.next_button.isEnabled())
             self.assertFalse(window.update_banner.isVisible())
             self.assertEqual(window.ai_chip.text(), "AI 未配置")
+            self.assertEqual(window.renderer_combo.count(), 2)
+            self.assertEqual(window.renderer_combo.currentData(), "python")
 
             screenshot = PROJECT_ROOT / "output" / "ui_v4.png"
             screenshot.parent.mkdir(parents=True, exist_ok=True)
@@ -184,6 +186,59 @@ class MVAIWorkerTest(unittest.TestCase):
 
         self.assertEqual(len(failed), 1)
         self.assertIn("接口不可用", failed[0])
+
+
+class P5AIWorkerTest(unittest.TestCase):
+    """P5SceneAIWorker 的生成逻辑（试渲染被 mock，避免启动浏览器）。"""
+
+    def setUp(self) -> None:
+        TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = TEMP_ROOT / f"p5-ai-{uuid.uuid4().hex}"
+        self.scenes = self.temp_dir / "js_scenes"
+        self.output = self.temp_dir / "output"
+        self.scenes.mkdir(parents=True)
+        self.output.mkdir(parents=True)
+        self.settings = AppSettings(api_key="sk-test", model="demo-model")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_generates_js_scene(self) -> None:
+        from codemv.app import mv_workers
+
+        worker = mv_workers.P5SceneAIWorker(
+            audio_name="song.mp3",
+            analysis=make_analysis(),
+            lyrics_path=None,
+            idea="海边的月亮",
+            settings=self.settings,
+            scenes_dir=self.scenes,
+            output_dir=self.output,
+            width=240,
+            height=426,
+        )
+        done: list[tuple[str, str]] = []
+        failed: list[str] = []
+        worker.done.connect(lambda scene, preview: done.append((scene, preview)))
+        worker.failed.connect(failed.append)
+
+        def fake_preview(scene_path, analysis, lyrics, seconds, out_path, **kwargs):
+            from pathlib import Path as _Path
+
+            _Path(out_path).write_bytes(b"\x89PNG\r\n\x1a\n")
+            return _Path(out_path)
+
+        code = "function drawScene(t, ctx) { brush.circle(ctx.width / 2, ctx.height / 2, 20); }"
+        with mock.patch.object(mv_workers, "chat_completion", return_value=code):
+            with mock.patch.object(mv_workers, "render_p5_preview", side_effect=fake_preview):
+                worker.run()
+
+        self.assertEqual(failed, [])
+        self.assertEqual(len(done), 1)
+        scene_path = Path(done[0][0])
+        self.assertEqual(scene_path.suffix, ".js")
+        self.assertTrue(scene_path.exists())
+        self.assertIn("drawScene", scene_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

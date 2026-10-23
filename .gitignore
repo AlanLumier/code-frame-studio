@@ -32,3 +32,6 @@ Thumbs.db
 
 # npm 本地缓存
 .npm-cache/
+
+# p5 渲染后端依赖
+js/node_modules/

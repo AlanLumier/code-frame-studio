@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from codemv.audio import SAMPLE_RATE, analyze_audio
+from codemv.audio import SAMPLE_RATE, AudioAnalysis, analyze_audio
 from codemv.lyrics import LyricsTimeline, load_lyrics, parse_lrc
 from codemv.mv import (
     build_context,
@@ -192,6 +192,51 @@ class MVRenderTest(unittest.TestCase):
         self.assertTrue(context.exists())
         with Image.open(context) as image:
             self.assertEqual(image.size, (240, 426))
+
+
+class P5BackendTest(unittest.TestCase):
+    def test_environment_status_shape(self) -> None:
+        from codemv.p5_backend import environment_status
+
+        available, message = environment_status()
+        self.assertIsInstance(available, bool)
+        self.assertIsInstance(message, str)
+
+    def test_build_frames_for_p5(self) -> None:
+        from codemv.p5_backend import build_frames
+
+        analysis = AudioAnalysis(
+            duration=2.0,
+            bpm=120.0,
+            beats=[0.5, 1.0, 1.5],
+            frame_rate=43.0,
+            env=np.full(86, 0.5, dtype=np.float32),
+            low=np.full(86, 0.4, dtype=np.float32),
+            mid=np.full(86, 0.5, dtype=np.float32),
+            high=np.full(86, 0.3, dtype=np.float32),
+        )
+        frames = build_frames(analysis, None, total_seconds=1.0, fps=6, width=240, height=426)
+        self.assertEqual(len(frames), 6)
+        self.assertIn("t", frames[0])
+        self.assertEqual(frames[0]["ctx"]["width"], 240)
+        self.assertIsInstance(frames[0]["ctx"]["spectrum"], list)
+        self.assertTrue(0.0 <= frames[-1]["t"] <= 1.0)
+
+    def test_p5_prompt_contains_song_context(self) -> None:
+        from codemv.prompt import build_p5_generation_prompt
+
+        prompt = build_p5_generation_prompt(
+            song_name="月光",
+            duration=24.0,
+            bpm=120,
+            beat_count=48,
+            lyrics_lines=["[00:03] 月光洒在海面"],
+            idea="夜晚海边",
+        )
+        self.assertIn("drawScene", prompt)
+        self.assertIn("p5.brush", prompt)
+        self.assertIn("月光洒在海面", prompt)
+        self.assertIn("120", prompt)
 
 
 if __name__ == "__main__":

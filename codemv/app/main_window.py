@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 from codemv import __version__
 from codemv.audio import AudioAnalysis
 from codemv.lyrics import load_lyrics
+from codemv.p5_backend import environment_status as p5_environment_status
 
 from . import theme
 from .icons import icon
@@ -44,6 +45,9 @@ from .mv_workers import (
     MVPreviewWorker,
     MVRenderWorker,
     MVSceneAIWorker,
+    P5PreviewWorker,
+    P5RenderWorker,
+    P5SceneAIWorker,
 )
 from .settings import PROJECT_ROOT, AppSettings
 from .settings_dialog import SettingsDialog
@@ -157,6 +161,7 @@ class MainWindow(QMainWindow):
         self.lyrics_path: Path | None = None
         self.analysis: AudioAnalysis | None = None
         self.scene_path: Path | None = None
+        self.renderer = "python"
         self.preview_source: QPixmap | None = None
         self.pending_update: ReleaseInfo | None = None
         self._workers: list = []
@@ -438,6 +443,19 @@ class MainWindow(QMainWindow):
         left_layout.setContentsMargins(16, 16, 16, 16)
         left_layout.setSpacing(10)
 
+        engine_title = QLabel("画面引擎")
+        engine_title.setObjectName("sectionTitle")
+        left_layout.addWidget(engine_title)
+        self.renderer_combo = QComboBox()
+        self.renderer_combo.addItem("内置矢量 · 速度快", "python")
+        self.renderer_combo.addItem("p5.brush 手绘 · 更有手绘感", "p5")
+        self.renderer_combo.currentIndexChanged.connect(self._on_renderer_changed)
+        left_layout.addWidget(self.renderer_combo)
+        self.engine_hint = QLabel("内置矢量引擎：速度快，画面由 AI 用代码绘制。")
+        self.engine_hint.setObjectName("status")
+        self.engine_hint.setWordWrap(True)
+        left_layout.addWidget(self.engine_hint)
+
         idea_title = QLabel("给 AI 一点灵感（可选）")
         idea_title.setObjectName("sectionTitle")
         left_layout.addWidget(idea_title)
@@ -517,6 +535,29 @@ class MainWindow(QMainWindow):
         layout.addWidget(right, 1)
         return page
 
+    def _on_renderer_changed(self) -> None:
+        renderer = self.renderer_combo.currentData()
+        if renderer == "p5":
+            available, message = p5_environment_status()
+            if not available:
+                QMessageBox.warning(
+                    self,
+                    "手绘引擎不可用",
+                    message
+                    + "\n\n可以在 js 目录双击 install_p5.cmd 安装依赖；也可以先使用内置矢量引擎。",
+                )
+                self.renderer_combo.setCurrentIndex(0)
+                return
+            self.engine_hint.setText("手绘引擎：p5.brush 水彩笔触，画面更有手绘感，渲染较慢。")
+        else:
+            self.engine_hint.setText("内置矢量引擎：速度快，画面由 AI 用代码绘制。")
+
+        if self.scene_path is not None:
+            self.scene_path = None
+            self.continue_button.setEnabled(False)
+            self.preview_label.setPixmap(QPixmap())
+            self.preview_label.setText("切换引擎后需要重新生成画面")
+
     def _start_ai_generation(self) -> None:
         if self._ai_busy:
             return
@@ -533,6 +574,14 @@ class MainWindow(QMainWindow):
             if not self.settings.api_key.strip():
                 return
 
+        renderer = self.renderer_combo.currentData()
+        if renderer == "p5":
+            available, message = p5_environment_status()
+            if not available:
+                QMessageBox.warning(self, "手绘引擎不可用", message)
+                return
+        self.renderer = renderer
+
         self._ai_busy = True
         self._set_step(1)
         self.preview_source = None
@@ -545,15 +594,26 @@ class MainWindow(QMainWindow):
         self.log_view.clear()
         self._log("开始理解这首歌的节奏和歌词…")
 
-        worker = MVSceneAIWorker(
-            audio_name=self.audio_path.name,
-            analysis=self.analysis,
-            lyrics_path=self.lyrics_path,
-            idea=self.idea_edit.toPlainText(),
-            settings=self.settings,
-            scenes_dir=SCENES_DIR,
-            output_dir=OUTPUT_DIR,
-        )
+        if renderer == "p5":
+            worker = P5SceneAIWorker(
+                audio_name=self.audio_path.name,
+                analysis=self.analysis,
+                lyrics_path=self.lyrics_path,
+                idea=self.idea_edit.toPlainText(),
+                settings=self.settings,
+                scenes_dir=PROJECT_ROOT / "js" / "scenes",
+                output_dir=OUTPUT_DIR,
+            )
+        else:
+            worker = MVSceneAIWorker(
+                audio_name=self.audio_path.name,
+                analysis=self.analysis,
+                lyrics_path=self.lyrics_path,
+                idea=self.idea_edit.toPlainText(),
+                settings=self.settings,
+                scenes_dir=SCENES_DIR,
+                output_dir=OUTPUT_DIR,
+            )
         worker.status.connect(self._log)
         worker.done.connect(self._on_ai_done)
         worker.failed.connect(self._on_ai_failed)
@@ -592,13 +652,24 @@ class MainWindow(QMainWindow):
             return
         seconds = self.analysis.duration * self.time_slider.value() / 1000
         out_path = OUTPUT_DIR / "mv_preview.png"
-        worker = MVPreviewWorker(
-            scene_path=self.scene_path,
-            analysis=self.analysis,
-            lyrics_path=self.lyrics_path,
-            seconds=seconds,
-            out_path=out_path,
-        )
+        if self.renderer == "p5":
+            worker = P5PreviewWorker(
+                scene_path=self.scene_path,
+                analysis=self.analysis,
+                lyrics_path=self.lyrics_path,
+                seconds=seconds,
+                out_path=out_path,
+                width=540,
+                height=960,
+            )
+        else:
+            worker = MVPreviewWorker(
+                scene_path=self.scene_path,
+                analysis=self.analysis,
+                lyrics_path=self.lyrics_path,
+                seconds=seconds,
+                out_path=out_path,
+            )
         worker.done.connect(self._show_preview)
         worker.failed.connect(self._log)
         worker.finished.connect(lambda: self._release_worker(worker))
@@ -732,7 +803,11 @@ class MainWindow(QMainWindow):
         if not self.output_edit.text().strip():
             stem = self.audio_path.stem if self.audio_path else "mv"
             self.output_edit.setText(str(OUTPUT_DIR / f"mv_{stem}.mp4"))
-        self.render_status.setText("等待开始")
+        if self.renderer == "p5":
+            self.resolution_combo.setCurrentIndex(1)
+            self.render_status.setText("手绘引擎渲染较慢，建议先用 720×1280 或 30 秒样片。")
+        else:
+            self.render_status.setText("等待开始")
 
     def _choose_output(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "保存 MV", self.output_edit.text(), "MP4 视频 (*.mp4)")
@@ -759,18 +834,30 @@ class MainWindow(QMainWindow):
         self.render_progress.setVisible(True)
         self.render_progress.setValue(0)
         self.open_video_button.setVisible(False)
-        self.render_status.setText("正在渲染…首次使用可能需要几分钟。")
-
-        worker = MVRenderWorker(
-            scene_path=self.scene_path,
-            audio_path=self.audio_path,
-            lyrics_path=self.lyrics_path,
-            out_path=output,
-            fps=fps,
-            width=width,
-            height=height,
-            max_seconds=max_seconds,
-        )
+        if self.renderer == "p5":
+            self.render_status.setText("正在用 p5.brush 逐帧绘制…手绘渲染比较慢，请耐心等待。")
+            worker = P5RenderWorker(
+                scene_path=self.scene_path,
+                audio_path=self.audio_path,
+                lyrics_path=self.lyrics_path,
+                out_path=output,
+                fps=fps,
+                width=width,
+                height=height,
+                max_seconds=max_seconds,
+            )
+        else:
+            self.render_status.setText("正在渲染…首次使用可能需要几分钟。")
+            worker = MVRenderWorker(
+                scene_path=self.scene_path,
+                audio_path=self.audio_path,
+                lyrics_path=self.lyrics_path,
+                out_path=output,
+                fps=fps,
+                width=width,
+                height=height,
+                max_seconds=max_seconds,
+            )
         worker.progress.connect(self._on_render_progress)
         worker.done.connect(self._on_render_done)
         worker.failed.connect(self._on_render_failed)
@@ -822,6 +909,7 @@ class MainWindow(QMainWindow):
         self.preview_button.setEnabled(False)
         self.render_progress.setVisible(False)
         self.render_status.setText("等待开始")
+        self.renderer = self.renderer_combo.currentData()
         self.stack.setCurrentIndex(0)
         self._set_step(0)
 
