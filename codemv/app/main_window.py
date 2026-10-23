@@ -389,8 +389,8 @@ class MainWindow(QMainWindow):
                 if item is not None and item.data(Qt.ItemDataRole.UserRole) == str(current):
                     target_row = row
                     break
+        # setCurrentRow 会触发 currentItemChanged → _on_scene_selected，无需再手动调用
         self.scene_list.setCurrentRow(target_row)
-        self._on_scene_selected()
 
     def _on_scene_selected(self) -> None:
         item = self.scene_list.currentItem()
@@ -684,11 +684,16 @@ class MainWindow(QMainWindow):
         if worker in self._workers:
             self._workers.remove(worker)
 
-    def closeEvent(self, event) -> None:  # noqa: N802 - Qt 命名
+    def shutdown(self) -> None:
+        """等待后台线程结束，避免窗口销毁时线程仍在运行。"""
         for worker in list(self._workers):
             if worker.isRunning():
                 worker.requestInterruption()
-                worker.wait(1500)
+                worker.wait(30000)
+        self._workers.clear()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt 命名
+        self.shutdown()
         super().closeEvent(event)
 
 
@@ -700,5 +705,6 @@ def launch(argv: list[str] | None = None) -> int:
     app.setStyle("Fusion")
     app.setStyleSheet(theme.stylesheet())
     window = MainWindow()
+    app.aboutToQuit.connect(window.shutdown)
     window.show()
     return app.exec()
