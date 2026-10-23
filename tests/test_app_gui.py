@@ -1,4 +1,4 @@
-"""桌面界面冒烟测试（离屏运行，不依赖显示器）。"""
+"""桌面界面冒烟测试与 MV AI 工作线程测试（离屏运行）。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ import uuid
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
@@ -16,10 +18,32 @@ try:
 except ImportError:  # pragma: no cover - 未安装 PySide6 时跳过
     QApplication = None  # type: ignore[assignment]
 
-from codemv.app import workers
 from codemv.app.settings import AppSettings
+from codemv.audio import AudioAnalysis
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+TEMP_ROOT = PROJECT_ROOT / "output" / ".test-tmp"
+
+GOOD_MV_CODE = """from PIL import Image
+
+def render_frame(t: float, ctx) -> Image.Image:
+    width, height = ctx.width, ctx.height
+    return Image.new("RGB", (width, height), (12, 20, 34))
+"""
+
+
+def make_analysis(duration: float = 2.0) -> AudioAnalysis:
+    frames = max(10, int(duration * 43))
+    return AudioAnalysis(
+        duration=duration,
+        bpm=120.0,
+        beats=[0.5, 1.0, 1.5],
+        frame_rate=43.0,
+        env=np.full(frames, 0.5, dtype=np.float32),
+        low=np.full(frames, 0.4, dtype=np.float32),
+        mid=np.full(frames, 0.5, dtype=np.float32),
+        high=np.full(frames, 0.3, dtype=np.float32),
+    )
 
 
 @unittest.skipIf(QApplication is None, "未安装 PySide6")
@@ -33,7 +57,16 @@ class GuiSmokeTest(unittest.TestCase):
     def test_icons_render(self) -> None:
         from codemv.app.icons import icon
 
-        for name in ("sparkles", "play", "eye", "settings", "refresh-cw", "download"):
+        for name in (
+            "sparkles",
+            "music",
+            "file-audio",
+            "upload",
+            "arrow-right",
+            "refresh-ccw",
+            "play",
+            "settings",
+        ):
             self.assertFalse(icon(name).isNull(), f"图标 {name} 渲染失败")
 
     def test_main_window_builds(self) -> None:
@@ -41,14 +74,15 @@ class GuiSmokeTest(unittest.TestCase):
 
         window = MainWindow(settings=AppSettings(), auto_start=False)
         try:
-            self.assertGreaterEqual(window.scene_list.count(), 3)
-            self.assertTrue(window.render_button.isEnabled())
+            self.assertEqual(window.stack.count(), 3)
+            self.assertEqual(len(window.step_frames), 3)
+            self.assertFalse(window.next_button.isEnabled())
             self.assertFalse(window.update_banner.isVisible())
+            self.assertEqual(window.ai_chip.text(), "AI 未配置")
 
-            screenshot = PROJECT_ROOT / "output" / "ui_smoke.png"
+            screenshot = PROJECT_ROOT / "output" / "ui_v4.png"
             screenshot.parent.mkdir(parents=True, exist_ok=True)
-            self.assertTrue(window.grab().save(str(screenshot)), "截图保存失败")
-            self.assertTrue(screenshot.exists())
+            self.assertTrue(window.grab().save(str(screenshot)))
         finally:
             window.close()
 
@@ -64,76 +98,88 @@ class GuiSmokeTest(unittest.TestCase):
             dialog.deleteLater()
 
 
-class AIWorkerTest(unittest.TestCase):
-    """验证 AIWorker 的生成、自动修复与错误上报（模型调用被打桩）。"""
-
-    GOOD_CODE = '''from PIL import Image
-
-WIDTH, HEIGHT = 960, 540
-
-
-def render_frame(t: float) -> Image.Image:
-    return Image.new("RGB", (WIDTH, HEIGHT), (10, 20, 30))
-'''
-
+@unittest.skipIf(QApplication is None, "未安装 PySide6")
+class MVAIWorkerTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = PROJECT_ROOT / "output" / ".test-tmp" / f"ai-worker-{uuid.uuid4().hex}"
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = TEMP_ROOT / f"mv-ai-{uuid.uuid4().hex}"
+        self.scenes = self.temp_dir / "scenes"
+        self.output = self.temp_dir / "output"
+        self.scenes.mkdir(parents=True)
+        self.output.mkdir(parents=True)
         self.settings = AppSettings(api_key="sk-test", model="demo-model")
 
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def test_generates_valid_scene(self) -> None:
-        from PIL import Image
+    def _make_worker(self):
+        from codemv.app.mv_workers import MVSceneAIWorker
 
-        from codemv.renderer import load_scene
+        return MVSceneAIWorker(
+            audio_name="song.mp3",
+            analysis=make_analysis(),
+            lyrics_path=None,
+            idea="夜晚的海边",
+            settings=self.settings,
+            scenes_dir=self.scenes,
+            output_dir=self.output,
+            width=360,
+            height=640,
+        )
 
-        worker = workers.AIWorker("一颗发光的球", self.settings, self.temp_dir)
-        done: list[str] = []
+    def test_generates_scene_and_preview(self) -> None:
+        from codemv.app import mv_workers
+
+        worker = self._make_worker()
+        done: list[tuple[str, str]] = []
         failed: list[str] = []
-        worker.done.connect(done.append)
+        worker.done.connect(lambda scene, preview: done.append((scene, preview)))
         worker.failed.connect(failed.append)
 
-        fenced = "```python\n" + self.GOOD_CODE + "\n```"
-        with mock.patch.object(workers, "chat_completion", return_value=fenced):
+        fenced = "```python\n" + GOOD_MV_CODE + "\n```"
+        with mock.patch.object(mv_workers, "chat_completion", return_value=fenced):
             worker.run()
 
         self.assertEqual(failed, [])
         self.assertEqual(len(done), 1)
-        scene_path = Path(done[0])
+        scene_path = Path(done[0][0])
+        preview_path = Path(done[0][1])
         self.assertTrue(scene_path.exists())
-        self.assertEqual(scene_path.parent, self.temp_dir)
-        self.assertIsInstance(load_scene(scene_path)(0.5), Image.Image)
+        self.assertTrue(preview_path.exists())
+        self.assertEqual(scene_path.parent, self.scenes)
+        self.assertGreater(preview_path.stat().st_size, 100)
 
-    def test_retries_after_invalid_code(self) -> None:
+    def test_retries_after_broken_code(self) -> None:
+        from codemv.app import mv_workers
+
         calls = {"count": 0}
 
         def fake_completion(*args, **kwargs) -> str:
             calls["count"] += 1
             if calls["count"] == 1:
                 return "```python\ndef render_frame(t:\n    return 1\n```"
-            return "```python\n" + self.GOOD_CODE + "\n```"
+            return "```python\n" + GOOD_MV_CODE + "\n```"
 
-        worker = workers.AIWorker("测试画面", self.settings, self.temp_dir)
-        done: list[str] = []
-        worker.done.connect(done.append)
+        worker = self._make_worker()
+        done: list[tuple[str, str]] = []
+        worker.done.connect(lambda scene, preview: done.append((scene, preview)))
 
-        with mock.patch.object(workers, "chat_completion", side_effect=fake_completion):
+        with mock.patch.object(mv_workers, "chat_completion", side_effect=fake_completion):
             worker.run()
 
         self.assertEqual(calls["count"], 2)
         self.assertEqual(len(done), 1)
-        self.assertTrue(Path(done[0]).exists())
+        self.assertTrue(Path(done[0][0]).exists())
 
     def test_reports_model_error(self) -> None:
+        from codemv.app import mv_workers
         from codemv.app.ai_client import AIClientError
 
-        worker = workers.AIWorker("测试画面", self.settings, self.temp_dir)
+        worker = self._make_worker()
         failed: list[str] = []
         worker.failed.connect(failed.append)
 
-        with mock.patch.object(workers, "chat_completion", side_effect=AIClientError("接口不可用")):
+        with mock.patch.object(mv_workers, "chat_completion", side_effect=AIClientError("接口不可用")):
             worker.run()
 
         self.assertEqual(len(failed), 1)

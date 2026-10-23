@@ -147,8 +147,14 @@ def build_context(
     )
 
 
-def mux_audio(video_path: str | Path, audio_path: str | Path, out_path: str | Path) -> Path:
-    """把音频混流进无声视频。"""
+def mux_audio(
+    video_path: str | Path,
+    audio_path: str | Path,
+    out_path: str | Path,
+    *,
+    duration: float | None = None,
+) -> Path:
+    """把音频混流进无声视频；duration 不为空时只保留前 N 秒。"""
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
         raise SceneError("未找到 ffmpeg，无法合成音频。请安装 imageio-ffmpeg。")
@@ -175,8 +181,10 @@ def mux_audio(video_path: str | Path, audio_path: str | Path, out_path: str | Pa
         "-b:a",
         "192k",
         "-shortest",
-        str(output),
     ]
+    if duration is not None:
+        command += ["-t", f"{max(0.1, duration):.3f}"]
+    command.append(str(output))
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0 or not output.exists():
         message = (result.stderr or "").strip() or "ffmpeg 混流失败"
@@ -193,15 +201,20 @@ def render_mv(
     fps: int = 24,
     width: int = 1080,
     height: int = 1920,
+    max_seconds: float | None = None,
     progress: bool = True,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> Path:
-    """完整渲染一支 MV：逐帧场景 → 叠加歌词 → 合成视频 → 混入音频。"""
+    """完整渲染一支 MV：逐帧场景 → 叠加歌词 → 合成视频 → 混入音频。
+
+    max_seconds 不为空时只渲染前 N 秒（用于快速样片）。
+    """
     analysis = analyze_audio(audio_path)
     lyrics = load_lyrics(lyrics_path, duration=analysis.duration) if lyrics_path else None
     render_frame = load_mv_scene(scene_path)
 
-    frame_count = max(1, round(fps * analysis.duration))
+    total_seconds = analysis.duration if max_seconds is None else min(analysis.duration, max_seconds)
+    frame_count = max(1, round(fps * total_seconds))
     output = Path(out_path).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     temp_dir = output.parent / f".codemv-mv-{uuid.uuid4().hex}"
@@ -238,7 +251,7 @@ def render_mv(
 
         silent_video = temp_dir / "silent.mp4"
         compose_video(temp_dir, silent_video, fps=fps)
-        return mux_audio(silent_video, audio_path, output)
+        return mux_audio(silent_video, audio_path, output, duration=total_seconds)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 

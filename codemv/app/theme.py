@@ -221,6 +221,20 @@ QCheckBox {{
     color: {TEXT};
     spacing: 8px;
 }}
+QCheckBox::indicator {{
+    width: 18px;
+    height: 18px;
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    background-color: {BG};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {ACCENT};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {ACCENT};
+    border-color: {ACCENT};
+}}
 
 QDialog {{
     background-color: {PANEL};
@@ -244,4 +258,102 @@ QLabel#bannerText {{
     color: {TEXT};
     font-size: 13px;
 }}
-"""
+
+QLabel#pageTitle {{
+    font-size: 24px;
+    font-weight: 700;
+    color: {TEXT};
+}}
+QLabel#pageHint {{
+    color: {MUTED};
+    font-size: 13px;
+}}
+QLabel#sectionTitle {{
+    font-size: 15px;
+    font-weight: 600;
+    color: {TEXT};
+}}
+QLabel#chip {{
+    background-color: #16233a;
+    border: 1px solid #24354f;
+    border-radius: 10px;
+    padding: 4px 10px;
+    color: {MUTED};
+    font-size: 12px;
+}}
+QLabel#infoChip {{
+    background-color: #16233a;
+    border: 1px solid #24354f;
+    border-radius: 8px;
+    padding: 7px 12px;
+    color: {TEXT};
+    font-size: 13px;
+}}
+QFrame#step {{
+    background-color: {PANEL};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}}
+QFrame#step[state="active"] {{
+    background-color: {ACCENT_SOFT};
+    border: 1px solid {ACCENT};
+}}
+QFrame#step[state="done"] {{
+    background-color: #0f2419;
+    border: 1px solid #2e6a4a;
+}}
+QLabel#stepNumber {{
+    min-width: 26px;
+    max-width: 26px;
+    min-height: 26px;
+    max-height: 26px;
+    border-radius: 13px;
+    background-color: #1c2941;
+    color: {MUTED};
+    font-weight: 700;
+    qproperty-alignment: AlignCenter;
+}}
+QFrame#step[state="active"] QLabel#stepNumber {{
+    background-color: {ACCENT};
+    color: #ffffff;
+}}
+QFrame#step[state="done"] QLabel#stepNumber {{
+    background-color: #1f7a4d;
+    color: #ffffff;
+}}
+QLabel#stepLabel {{
+    color: {TEXT};
+    font-size: 13px;
+    font-weight: 600;
+}}
+QFrame#dropzone {{
+    background-color: #0d1522;
+    border: 2px dashed #2b3b57;
+    border-radius: 14px;
+}}
+QFrame#dropzone[dragOver="true"] {{
+    background-color: #14213a;
+    border-color: {ACCENT};
+}}
+QLabel#dropTitle {{
+    font-size: 15px;
+    font-weight: 600;
+    color: {TEXT};
+}}
+QLabel#dropHint {{
+    color: {MUTED};
+    font-size: 12px;
+}}
+QLabel#mvPreview {{
+    background-color: #070b12;
+    border-radius: 12px;
+    color: {MUTED};
+}}
+QPlainTextEdit#logView {{
+    background-color: #0a111c;
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    color: {MUTED};
+    font-size: 12px;
+    padding: 6px;
+}}"""

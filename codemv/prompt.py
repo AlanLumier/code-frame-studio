@@ -46,3 +46,40 @@ def build_mv_prompt(description: str, orientation: str = "竖屏 1080×1920（9:
     except FileNotFoundError:
         template = "请生成一个 MV 场景：{{description}}（{{orientation}}）"
     return template.replace("{{description}}", description).replace("{{orientation}}", orientation)
+
+
+def build_mv_generation_prompt(
+    *,
+    song_name: str,
+    duration: float,
+    bpm: float,
+    beat_count: int,
+    lyrics_lines: list[str],
+    idea: str = "",
+) -> str:
+    """把歌曲信息与歌词注入 MV 场景生成模板，交给 AI 生成画面代码。"""
+    idea = (idea or "").strip() or f"围绕《{song_name}》的情绪与歌词意象自由创作"
+    base = build_mv_prompt(idea)
+
+    lyrics_block = "\n".join(lyrics_lines) if lyrics_lines else "（这首歌没有提供歌词）"
+    context = f"""
+
+## 这首歌的真实数据（请严格据此设计画面）
+
+- 歌名：{song_name}
+- 时长：{duration:.1f} 秒
+- BPM：{bpm}
+- 节拍数量：{beat_count}
+
+## 歌词（时间戳 → 歌词）
+
+{lyrics_block}
+
+## 额外要求
+
+1. 画面意象必须来自上面的歌词与歌曲情绪，不要用无关的通用背景。
+2. 在节拍点（ctx.beat 接近 1 时）让光晕、波浪、镜头或元素有明显的反馈，做到卡点。
+3. 歌名、歌手、歌词文字都不要画进画面（歌词由渲染器统一叠加）。
+4. 只输出完整的 Python 代码。
+"""
+    return base + context

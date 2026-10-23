@@ -1,24 +1,33 @@
 # codemv · code-frame-studio
 
-> 由 AI 编写代码、逐帧渲染画面，再合成为视频 —— **不使用视频生成模型**。
+> 上传一首歌和它的歌词，AI 读懂节奏与歌词，**用代码逐帧画出画面**，生成带歌词、能卡点的 MV。
+> 不使用视频生成模型 —— 画面是算出来的。
 
-codemv 是一个桌面应用（PySide6）：你描述画面，AI 生成渲染代码，程序逐帧计算并合成 mp4。
-画面是**算出来的**，不是模型猜出来的。
+codemv 是一个面向全年龄的音乐 MV 工作台（PySide6）：三步向导，没有复杂参数；
+AI 会根据这首歌的真实数据（BPM、节拍、歌词）现场编写渲染代码，**不是套预设模板**。
 
 ![界面截图](docs/screenshot.png)
 
+## 三步做出你的 MV
+
+1. **导入**：拖入音乐（mp3 / wav / m4a / flac），可选拖入 `.lrc` 歌词
+2. **AI 创作**：写一句想要的感觉（也可以不写），AI 根据 BPM、节拍和歌词生成画面
+3. **渲染导出**：选分辨率和帧率，一键渲染，自动混入原曲
+
+![第一步：导入歌曲](docs/ui_step1.png)
+![第三步：渲染导出](docs/ui_step3.png)
+
 ## 功能特性
 
-- **桌面应用本体**：场景管理、单帧预览、进度滑块、视频渲染、输出目录一键打开
-- **AI 生成场景**：接入 OpenAI 兼容接口（默认 DeepSeek），生成后自动试渲染；
-  若代码运行报错，会把错误自动回传给模型修复（最多 3 次）
-- **音乐 MV（v0.3）**：导入音频自动分析 BPM、节拍与能量；叠加 LRC 歌词并卡点；
-  逐帧渲染后自动混入原曲，输出带声音的竖屏 MV
-- **SVG 图标**：界面图标来自开源 [Lucide](https://lucide.dev) 图标集（ISC 协议），
-  全部为矢量 SVG，不依赖 emoji
-- **更新机制**：从 GitHub 读取最新 Release/Tag，支持手动检查；
-  可在设置里开关「自动检查更新」与「自动安装更新」（基于 `git pull`）
-- **命令行**：同时保留 `preview` / `render` / `prompt` 子命令，方便脚本化
+- **面向全年龄的向导式界面**：大按钮、大字号、清晰的三个步骤，不需要理解代码
+- **AI 生成而非模板**：把歌曲时长、BPM、节拍数量与带时间戳的歌词交给大模型，
+  由它现场编写 `render_frame(t, ctx)` 渲染代码；画面会随节拍与歌词情绪变化
+- **自动试渲染与纠错**：AI 生成代码后先渲染一帧检查；报错会把错误回传给模型自动修复（最多 3 次）
+- **歌词卡拉 OK**：LRC 逐句时间轴 + 逐字高亮 + 淡入淡出
+- **音乐卡点**：音频分析给出节拍脉冲、响度、低/中/高频能量，场景可据此做光晕、波浪、镜头反馈
+- **全 SVG 图标**：来自开源 [Lucide](https://lucide.dev)（ISC 协议），不使用 emoji
+- **更新机制**：从 GitHub 读取最新 Release/Tag，可开关自动检查 / 自动安装
+- **命令行与桌面端同源**：`mv` / `mv-preview` / `prompt` 子命令方便脚本化和后续集成
 
 ## 快速开始
 
@@ -33,14 +42,11 @@ codemv 是一个桌面应用（PySide6）：你描述画面，AI 生成渲染代
 ### 命令行方式
 
 ```powershell
-# 1. 安装依赖（Python 3.10+）
 py -m pip install -r requirements.txt
-
-# 2. 启动桌面应用
 py -m codemv gui
 ```
 
-首次使用 AI 生成前，点击右上角 **设置** 图标，填写：
+首次使用前，点击右上角 **设置** 图标，填写 AI 配置：
 
 | 配置项 | 说明 |
 | --- | --- |
@@ -48,97 +54,101 @@ py -m codemv gui
 | 模型名称 | 默认 `deepseek-chat` |
 | API Key | 保存到 `.codemv/settings.json`（已 gitignore，不会提交） |
 
+## AI 生成逻辑（无预设模板）
+
+```text
+音乐 → ffmpeg 解码 → BPM / 节拍 / 能量 / 频段
+歌词 .lrc → 逐句时间轴 + 全文
+        ↓
+把「歌曲真实数据 + 带时间戳歌词 + 用户想法」写进提示词
+        ↓
+大模型生成 render_frame(t, ctx) 的 Python 场景代码
+        ↓
+试渲染一帧 → 失败就把报错回传给模型修复（最多 3 次）
+        ↓
+逐帧渲染 + 叠加卡拉 OK 歌词 + 混入原曲 → MV
+```
+
+场景能拿到的 `ctx`：`t`（整曲进度）、`seconds`、`duration`、`beat`（节拍脉冲 0~1）、
+`energy`（响度）、`spectrum`（低/中/高频）、`bpm`、`lyric_text`、`lyric_progress`。
+
 ## 界面说明
 
-- **左侧 · 场景**：选择 `scenes/` 下的场景文件，选中自动预览；
-  顶部图标分别为「新建场景」「用默认编辑器打开代码」「打开场景目录」「删除场景」
-- **左侧 · AI 生成场景**：输入画面描述，点击「生成并预览」，生成的代码保存为
-  `scenes/generated_*.py`
-- **右侧**：预览画布、动画进度滑块（0.00 ~ 1.00）、「预览帧」「渲染视频」按钮，
-  以及输出目录入口
-- **右上角**：「检查更新」与「设置」
+- **步骤条**：导入歌曲 → AI 生成画面 → 渲染导出，可随时点回上一步
+- **第 1 步**：拖拽 / 点击选择音乐和歌词；自动显示时长、BPM、节拍数、歌词行数
+- **第 2 步**：左侧填写灵感与查看歌词，右侧预览画面、拖动时间轴、查看生成日志；
+  可「重新生成」换一版
+- **第 3 步**：分辨率（1080×1920 / 720×1280 / 方形）、帧率、输出路径，
+  可勾选「先导出 30 秒样片」快速试用
+- **右上角**：AI 配置状态、版本号、检查更新、设置
 
 ## 命令行
 
 | 命令 | 说明 |
 | --- | --- |
 | `python -m codemv gui` | 启动桌面应用 |
-| `python -m codemv preview <scene.py> [-t 0.5] [-o output/preview.png]` | 渲染单帧 |
-| `python -m codemv render <scene.py> [-o output/video.mp4] [--fps 30] [--duration 6]` | 渲染视频 |
 | `python -m codemv mv <scene.py> --audio song.mp3 [--lyrics song.lrc] [-o output/mv.mp4]` | 渲染音乐 MV |
 | `python -m codemv mv-preview <scene.py> --audio song.mp3 [-t 10] [-o output/p.png]` | 渲染 MV 预览帧 |
-| `python -m codemv prompt "画面描述" [--mv]` | 输出给 AI 的场景生成提示词 |
+| `python -m codemv preview <scene.py> [-t 0.5] [-o output/preview.png]` | 渲染普通场景单帧 |
+| `python -m codemv render <scene.py> [-o output/video.mp4] [--fps 30] [--duration 6]` | 渲染普通场景视频 |
+| `python -m codemv prompt "描述" [--mv]` | 输出给 AI 的场景生成提示词 |
 
-## 场景契约（AI 生成的代码长这样）
+## 场景契约
+
+MV 场景（AI 生成的就是这种）：
+
+```python
+from PIL import Image
+
+def render_frame(t: float, ctx) -> Image.Image:
+    """t: 0.0 → 1.0 的整曲进度；ctx 里有 beat / energy / spectrum 等实时值。"""
+    width, height = ctx.width, ctx.height
+    image = Image.new("RGB", (width, height), (10, 12, 24))
+    # ……用 t 和 ctx.beat 画你想要的画面
+    return image
+```
+
+普通场景（旧版）：
 
 ```python
 from PIL import Image
 
 WIDTH, HEIGHT = 960, 540
 
-
 def render_frame(t: float) -> Image.Image:
-    """t: 0.0 → 1.0 的动画进度，返回一帧图像。"""
-    image = Image.new("RGB", (WIDTH, HEIGHT), (10, 12, 24))
-    # ……用 t 画你想要的画面
-    return image
+    return Image.new("RGB", (WIDTH, HEIGHT), (10, 12, 24))
 ```
-
-要求：仅使用标准库 + `Pillow` + `numpy`；随机数固定种子；单帧渲染控制在 50ms 以内。
-
-## 音乐 MV（v0.3）
-
-把一首歌做成带歌词、卡点的逐帧动画 MV：
-
-```powershell
-# 渲染某一秒的预览帧（调画面最快）
-py -m codemv mv-preview scenes/mv_night_sea.py --audio song.mp3 --lyrics song.lrc -t 10 -o output/preview.png --width 720 --height 1280
-
-# 渲染整首 MV（默认 1080x1920 竖屏、24fps）
-py -m codemv mv scenes/mv_night_sea.py --audio song.mp3 --lyrics song.lrc -o output/mv.mp4
-```
-
-工作方式：
-
-- 用 ffmpeg 解码音频，计算 **BPM、节拍点、能量包络与低/中/高频强度**
-- 歌词支持 `.lrc`（`[mm:ss.xx]歌词`），渲染器自动做**卡拉 OK 逐字高亮 + 淡入淡出**
-- MV 场景的入口是 `render_frame(t, ctx)`，`ctx` 里带 `beat`（节拍脉冲）、
-  `energy`（响度）、`spectrum`（频段）等实时值，画面可以据此卡点
-- 渲染完成后自动把原曲混入视频（AAC 192k），输出可直接播放的 mp4
-- 纯文本歌词（无时间轴）也可用：会按整曲时长平均分配（仅作兜底）
-
-给 AI 生成 MV 场景的提示词：`py -m codemv prompt --mv "夜晚海边，月亮，漂浮的孔明灯"`。
 
 ## 项目结构
 
 ```
 code-frame-studio/
 ├── codemv/
-│   ├── cli.py              # 命令行入口（gui / render / preview / mv / prompt）
-│   ├── renderer.py         # 场景加载、逐帧渲染、ffmpeg 合成
+│   ├── cli.py              # 命令行入口（gui / mv / mv-preview / render / preview / prompt）
+│   ├── renderer.py         # 普通场景：加载、逐帧渲染、ffmpeg 合成
 │   ├── audio.py            # 音频解码、BPM / 节拍 / 能量分析
 │   ├── lyrics.py           # LRC 歌词解析与时间轴
 │   ├── mv.py               # MV 渲染（歌词叠加 + 混音）
-│   ├── prompt.py           # 提示词构建
+│   ├── prompt.py           # 提示词构建（场景 / MV）
 │   └── app/                # 桌面应用
-│       ├── main_window.py  # 主窗口
+│       ├── main_window.py  # 三步向导主窗口
+│       ├── mv_workers.py   # 音频分析 / AI 生成 / 预览 / 渲染线程
 │       ├── settings_dialog.py
 │       ├── settings.py     # 设置持久化（.codemv/settings.json）
 │       ├── ai_client.py    # OpenAI 兼容客户端（标准库）
 │       ├── updater.py      # GitHub 更新检查 + git pull
-│       ├── workers.py      # 预览/渲染/AI/更新的后台线程
+│       ├── workers.py      # 更新与旧场景线程
 │       ├── icons.py        # SVG 图标加载
 │       ├── theme.py        # 深色主题 QSS
 │       └── widgets.py      # 自绘开关等
 ├── assets/icons/           # Lucide SVG 图标（ISC）
-├── scenes/                 # 样例场景（含 mv_night_sea.py 月夜海面 MV 场景）
-├── prompts/scene_prompt.md # 给 AI 的场景提示词模板
-├── prompts/mv_prompt.md    # 给 AI 的 MV 场景提示词模板
+├── scenes/                 # 示例场景（含 mv_night_sea.py）
+├── prompts/scene_prompt.md # 普通场景提示词模板
+├── prompts/mv_prompt.md    # MV 场景提示词模板
 ├── tests/                  # unittest 测试集
-├── docs/screenshot.png
+├── docs/                   # 界面截图
 ├── output/                 # 渲染产物（已 gitignore）
-├── run.cmd                 # Windows 双击启动
-├── install.cmd             # Windows 双击安装依赖
+├── run.cmd / install.cmd   # Windows 双击启动 / 安装
 ├── requirements.txt
 └── agents.md               # 开发约定
 ```
@@ -149,8 +159,8 @@ code-frame-studio/
 python -m unittest discover -s tests -v
 ```
 
-覆盖：场景契约、逐帧渲染、视频合成、设置读写、AI 客户端（mock）、
-更新版本比较与 `git pull`（mock）、界面离屏冒烟测试（无显示器也可运行）。
+覆盖：场景契约、逐帧渲染、视频合成、音频 BPM/节拍分析、LRC 解析、
+MV 渲染与混音、AI 客户端与 AI 场景生成（mock）、界面离屏冒烟测试。
 
 ## 更新机制
 
@@ -168,25 +178,21 @@ python -m unittest discover -s tests -v
 1. 直接双击 `install.cmd` / `run.cmd`，脚本会自动使用 `py` 启动器；
 2. 手动执行 `py -m pip install -r requirements.txt`、`py -m codemv gui`；
 3. 把 Python 加入 PATH：重新运行 Python 安装包 → Modify → 勾选 **Add Python to PATH**，
-   然后重新打开终端。需要手动添加时，把下面两个目录写入用户环境变量 `Path`：
-
-   ```
-   C:\Users\<用户名>\AppData\Local\Programs\Python\Python3XX\
-   C:\Users\<用户名>\AppData\Local\Programs\Python\Python3XX\Scripts\
-   ```
+   然后重新打开终端。
 
 ### 提示找不到 ffmpeg
 
-安装依赖时 `imageio-ffmpeg` 已经自带 ffmpeg 二进制，无需单独安装；
+`imageio-ffmpeg` 依赖已经自带 ffmpeg 二进制，无需单独安装；
 如果使用系统 ffmpeg，可设置环境变量 `CODEMV_FFMPEG` 指向 `ffmpeg.exe`。
 
 ## 路线图
 
 - [x] MVP：渲染内核 + 场景契约 + CLI + 样例场景 + 测试
-- [x] v0.2.0：桌面应用界面、AI 生成与自动修复、SVG 图标、更新检查与开关
+- [x] v0.2.0：桌面应用、AI 生成与自动修复、SVG 图标、更新检查
 - [x] v0.3.0：音乐 MV（BPM/节拍分析、LRC 歌词卡拉 OK、混音导出）
-- [ ] 桌面界面接入 MV 工作台（选歌 → 选场景 → 预览 → 导出）
-- [ ] 多场景分镜与转场、更多内置 MV 样式
-- [ ] 安装包打包（Windows exe）
+- [x] v0.4.0：面向全年龄的三步向导 UI、AI 按歌曲/歌词现场生成画面、30 秒样片
+- [ ] p5.js + p5.brush 手绘笔触渲染后端（Node + Chrome，做成可切换的渲染器）
+- [ ] 对接 folia 播放器（Electron/TypeScript）的播放页 MV 能力
+- [ ] 多场景分镜与转场、安装包打包（Windows exe）
 
 图标授权：Lucide Icons — ISC License，见 `assets/icons/LICENSE`。

@@ -1,27 +1,32 @@
-"""codemv 桌面主窗口。"""
+"""codemv 音乐 MV 工作台主窗口（面向全年龄的向导式界面）。"""
 
 from __future__ import annotations
 
 import os
-from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSlider,
+    QStackedWidget,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
@@ -29,79 +34,153 @@ from PySide6.QtWidgets import (
 )
 
 from codemv import __version__
-from codemv.prompt import build_scene_prompt
-from codemv.renderer import DEFAULT_HEIGHT, DEFAULT_WIDTH
+from codemv.audio import AudioAnalysis
+from codemv.lyrics import load_lyrics
 
 from . import theme
 from .icons import icon
+from .mv_workers import (
+    AudioAnalyzeWorker,
+    MVPreviewWorker,
+    MVRenderWorker,
+    MVSceneAIWorker,
+)
 from .settings import PROJECT_ROOT, AppSettings
 from .settings_dialog import SettingsDialog
-from .updater import REPO_URL
-from .widgets import ToggleSwitch
-from .workers import (
-    AIWorker,
-    InstallUpdateWorker,
-    PreviewWorker,
-    RenderWorker,
-    UpdateCheckWorker,
-)
+from .updater import REPO_URL, ReleaseInfo
+from .workers import InstallUpdateWorker, UpdateCheckWorker
 
 SCENES_DIR = PROJECT_ROOT / "scenes"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
-NEW_SCENE_TEMPLATE = '''"""新场景：{name}"""
+STEPS = ["导入歌曲", "AI 生成画面", "渲染导出"]
 
-from PIL import Image, ImageDraw
+AUDIO_FILTER = "音频文件 (*.mp3 *.wav *.m4a *.flac *.aac *.ogg)"
+LYRICS_FILTER = "歌词文件 (*.lrc *.txt)"
 
-WIDTH, HEIGHT = 960, 540
+
+def _format_time(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    minutes = int(seconds // 60)
+    remain = int(seconds % 60)
+    return f"{minutes:02d}:{remain:02d}"
 
 
-def render_frame(t: float) -> Image.Image:
-    """t: 0.0 → 1.0 的动画进度。"""
-    image = Image.new("RGB", (WIDTH, HEIGHT), (10, 14, 26))
-    draw = ImageDraw.Draw(image)
+class DropZone(QFrame):
+    """可拖拽 / 可点击的文件选择区域。"""
 
-    radius = 40 + 60 * t
-    cx, cy = WIDTH / 2, HEIGHT / 2
-    draw.ellipse(
-        [cx - radius, cy - radius, cx + radius, cy + radius],
-        fill=(110, 168, 255),
-    )
-    return image
-'''
+    fileSelected = Signal(str)
+
+    def __init__(
+        self,
+        icon_name: str,
+        title: str,
+        hint: str,
+        file_filter: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("dropzone")
+        self.setAcceptDrops(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(140)
+        self._filter = file_filter
+        self._default_title = title
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(6)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._icon_label = QLabel()
+        self._icon_label.setPixmap(icon(icon_name, theme.ACCENT, 30).pixmap(30, 30))
+        self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._icon_label)
+
+        self._title_label = QLabel(title)
+        self._title_label.setObjectName("dropTitle")
+        self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._title_label)
+
+        self._hint_label = QLabel(hint)
+        self._hint_label.setObjectName("dropHint")
+        self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._hint_label.setWordWrap(True)
+        layout.addWidget(self._hint_label)
+
+    def set_file_text(self, text: str) -> None:
+        self._title_label.setText(text)
+
+    def reset_text(self) -> None:
+        self._title_label.setText(self._default_title)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt 命名
+        if event.button() == Qt.MouseButton.LeftButton:
+            path, _ = QFileDialog.getOpenFileName(self, "选择文件", "", self._filter)
+            if path:
+                self.fileSelected.emit(path)
+        super().mouseReleaseEvent(event)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt 命名
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self.setProperty("dragOver", True)
+            self._repolish()
+
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802 - Qt 命名
+        self.setProperty("dragOver", False)
+        self._repolish()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 - Qt 命名
+        self.setProperty("dragOver", False)
+        self._repolish()
+        urls = event.mimeData().urls()
+        if urls:
+            path = urls[0].toLocalFile()
+            if path:
+                self.fileSelected.emit(path)
+        event.acceptProposedAction()
+
+    def _repolish(self) -> None:
+        self.style().unpolish(self)
+        self.style().polish(self)
 
 
 class MainWindow(QMainWindow):
-    """应用主窗口：场景管理、AI 生成、预览、渲染与更新。"""
+    """三步式 MV 创作向导。"""
 
     def __init__(self, settings: AppSettings | None = None, auto_start: bool = True) -> None:
         super().__init__()
         self.settings = settings or AppSettings.load()
-        self.current_scene: Path | None = None
-        self.pending_update = None
+        self.audio_path: Path | None = None
+        self.lyrics_path: Path | None = None
+        self.analysis: AudioAnalysis | None = None
+        self.scene_path: Path | None = None
+        self.preview_source: QPixmap | None = None
+        self.pending_update: ReleaseInfo | None = None
         self._workers: list = []
-        self._preview_token = 0
-        self._preview_source: QPixmap | None = None
         self._checking_updates = False
+        self._ai_busy = False
+        self._rendering = False
 
-        self.setWindowTitle("codemv — AI 逐帧渲染工作台")
+        self.setWindowTitle("codemv — AI 音乐 MV 工作台")
         self.setWindowIcon(icon("sparkles", theme.ACCENT, 32))
         self.setStyleSheet(theme.stylesheet())
-        self.resize(1280, 820)
-        self.setMinimumSize(1080, 700)
+        self.resize(1280, 840)
+        self.setMinimumSize(1100, 720)
 
         SCENES_DIR.mkdir(parents=True, exist_ok=True)
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         self._build_ui()
-        self._setup_watcher()
-        self._reload_scenes()
-        self._update_api_hint()
+        self._set_step(0)
+        self._update_ai_chip()
 
         if auto_start:
             QTimer.singleShot(900, self._startup_checks)
 
-    # ------------------------------------------------------------------ UI
+    # ------------------------------------------------------------------ 界面
     def _build_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
@@ -114,13 +193,37 @@ class MainWindow(QMainWindow):
         self.update_banner = self._build_update_banner()
         root.addWidget(self.update_banner)
 
-        content = QWidget()
-        content_layout = QHBoxLayout(content)
-        content_layout.setContentsMargins(18, 16, 18, 16)
-        content_layout.setSpacing(16)
-        content_layout.addWidget(self._build_left_panel())
-        content_layout.addWidget(self._build_preview_panel(), 1)
-        root.addWidget(content, 1)
+        step_bar = QWidget()
+        step_layout = QHBoxLayout(step_bar)
+        step_layout.setContentsMargins(28, 16, 28, 4)
+        step_layout.setSpacing(12)
+        self.step_frames: list[QFrame] = []
+        self.step_numbers: list[QLabel] = []
+        for index, label in enumerate(STEPS):
+            frame = QFrame()
+            frame.setObjectName("step")
+            frame.setCursor(Qt.CursorShape.PointingHandCursor)
+            frame.mouseReleaseEvent = lambda event, i=index: self._on_step_clicked(i)  # type: ignore[assignment]
+            frame_layout = QHBoxLayout(frame)
+            frame_layout.setContentsMargins(12, 8, 14, 8)
+            frame_layout.setSpacing(10)
+            number = QLabel(str(index + 1))
+            number.setObjectName("stepNumber")
+            text = QLabel(label)
+            text.setObjectName("stepLabel")
+            frame_layout.addWidget(number)
+            frame_layout.addWidget(text)
+            frame_layout.addStretch(1)
+            self.step_frames.append(frame)
+            self.step_numbers.append(number)
+            step_layout.addWidget(frame, 1)
+        root.addWidget(step_bar)
+
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self._build_import_page())
+        self.stack.addWidget(self._build_ai_page())
+        self.stack.addWidget(self._build_export_page())
+        root.addWidget(self.stack, 1)
 
     def _build_header(self) -> QWidget:
         header = QWidget()
@@ -137,11 +240,14 @@ class MainWindow(QMainWindow):
         title.setObjectName("title")
         layout.addWidget(title)
 
-        subtitle = QLabel("AI 逐帧渲染工作台")
+        subtitle = QLabel("AI 音乐 MV 工作台")
         subtitle.setObjectName("subtitle")
         layout.addWidget(subtitle)
-
         layout.addStretch(1)
+
+        self.ai_chip = QLabel("AI 未配置")
+        self.ai_chip.setObjectName("chip")
+        layout.addWidget(self.ai_chip)
 
         version = QLabel(f"v{__version__}")
         version.setObjectName("version")
@@ -152,12 +258,12 @@ class MainWindow(QMainWindow):
         self.update_button.clicked.connect(lambda: self._check_updates(manual=True))
         layout.addWidget(self.update_button)
 
-        self.settings_button = QToolButton()
-        self.settings_button.setIcon(icon("settings", theme.TEXT, 20))
-        self.settings_button.setIconSize(QSize(20, 20))
-        self.settings_button.setToolTip("设置")
-        self.settings_button.clicked.connect(self._open_settings)
-        layout.addWidget(self.settings_button)
+        settings_button = QToolButton()
+        settings_button.setIcon(icon("settings", theme.TEXT, 20))
+        settings_button.setIconSize(QSize(20, 20))
+        settings_button.setToolTip("设置")
+        settings_button.clicked.connect(self._open_settings)
+        layout.addWidget(settings_button)
         return header
 
     def _build_update_banner(self) -> QFrame:
@@ -167,338 +273,354 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(banner)
         layout.setContentsMargins(16, 8, 12, 8)
         layout.setSpacing(10)
-
         icon_label = QLabel()
         icon_label.setPixmap(icon("download", theme.ACCENT, 18).pixmap(18, 18))
         layout.addWidget(icon_label)
-
         self.banner_text = QLabel("发现新版本")
         self.banner_text.setObjectName("bannerText")
         layout.addWidget(self.banner_text)
         layout.addStretch(1)
-
         self.install_button = QPushButton("立即更新")
         self.install_button.setObjectName("primary")
         self.install_button.setIcon(icon("download", "#FFFFFF", 16))
         self.install_button.clicked.connect(self._install_update)
         layout.addWidget(self.install_button)
-
         dismiss = QToolButton()
         dismiss.setIcon(icon("x", theme.MUTED, 16))
         dismiss.setIconSize(QSize(16, 16))
-        dismiss.setToolTip("暂时忽略")
         dismiss.clicked.connect(lambda: banner.setVisible(False))
         layout.addWidget(dismiss)
         return banner
 
-    def _build_left_panel(self) -> QWidget:
-        panel = QFrame()
-        panel.setObjectName("panel")
-        panel.setFixedWidth(360)
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
+    # ------------------------------------------------------------------ 第 1 步
+    def _build_import_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 22, 32, 26)
+        layout.setSpacing(16)
 
-        scene_header = QHBoxLayout()
-        scene_title = QLabel("场景")
-        scene_title.setObjectName("section")
-        scene_header.addWidget(scene_title)
-        scene_header.addStretch(1)
-
-        new_button = self._tool_button("plus", "新建场景", self._create_scene)
-        code_button = self._tool_button("file-code", "用默认编辑器打开代码", self._open_scene_code)
-        folder_button = self._tool_button("folder-open", "打开场景目录", lambda: self._open_folder(SCENES_DIR))
-        delete_button = self._tool_button("trash-2", "删除场景", self._delete_scene)
-        for button in (new_button, code_button, folder_button, delete_button):
-            scene_header.addWidget(button)
-        layout.addLayout(scene_header)
-
-        self.scene_list = QListWidget()
-        self.scene_list.setIconSize(QSize(16, 16))
-        self.scene_list.setMinimumHeight(200)
-        self.scene_list.currentItemChanged.connect(lambda *_: self._on_scene_selected())
-        layout.addWidget(self.scene_list, 1)
-
-        hint = QLabel("选中场景会自动生成预览帧")
-        hint.setObjectName("status")
+        title = QLabel("先选一首歌")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+        hint = QLabel("支持 mp3 / wav / m4a / flac。歌词可选：.lrc 能精确卡点，.txt 会按时间平均分配。")
+        hint.setObjectName("pageHint")
+        hint.setWordWrap(True)
         layout.addWidget(hint)
 
-        divider = QFrame()
-        divider.setObjectName("divider")
-        divider.setFixedHeight(1)
-        layout.addWidget(divider)
-
-        ai_header = QHBoxLayout()
-        ai_icon = QLabel()
-        ai_icon.setPixmap(icon("sparkles", theme.ACCENT_SOFT, 16).pixmap(16, 16))
-        ai_title = QLabel("AI 生成场景")
-        ai_title.setObjectName("section")
-        ai_header.addWidget(ai_icon)
-        ai_header.addWidget(ai_title)
-        ai_header.addStretch(1)
-        layout.addLayout(ai_header)
-
-        self.description_edit = QTextEdit()
-        self.description_edit.setPlaceholderText(
-            "描述你想要的画面，例如：\n夕阳下的赛博城市，霓虹灯闪烁，镜头缓慢推进"
+        self.audio_drop = DropZone(
+            "music",
+            "把音乐拖到这里",
+            "或点击选择文件",
+            AUDIO_FILTER,
         )
-        self.description_edit.setMinimumHeight(96)
-        self.description_edit.setMaximumHeight(150)
-        layout.addWidget(self.description_edit)
+        self.audio_drop.fileSelected.connect(self._load_audio)
+        layout.addWidget(self.audio_drop, 2)
 
-        self.generate_button = QPushButton("生成并预览")
-        self.generate_button.setObjectName("primary")
-        self.generate_button.setIcon(icon("sparkles", "#FFFFFF", 16))
-        self.generate_button.clicked.connect(self._generate_scene)
-        layout.addWidget(self.generate_button)
-
-        self.ai_status = QLabel("未配置 API Key 时，请先在设置中填写。")
-        self.ai_status.setObjectName("status")
-        self.ai_status.setWordWrap(True)
-        layout.addWidget(self.ai_status)
-
-        layout.addStretch(1)
-        return panel
-
-    def _build_preview_panel(self) -> QWidget:
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
-        frame = QFrame()
-        frame.setObjectName("previewFrame")
-        frame_layout = QVBoxLayout(frame)
-        frame_layout.setContentsMargins(12, 12, 12, 12)
-
-        self.preview_label = QLabel("还没有预览图\n选择左侧场景，或先用 AI 生成一个")
-        self.preview_label.setObjectName("preview")
-        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumSize(520, 340)
-        frame_layout.addWidget(self.preview_label)
-        layout.addWidget(frame, 1)
-
-        controls = QHBoxLayout()
-        controls.setSpacing(10)
-
-        progress_title = QLabel("动画进度")
-        progress_title.setObjectName("status")
-        controls.addWidget(progress_title)
-
-        self.time_slider = QSlider(Qt.Orientation.Horizontal)
-        self.time_slider.setRange(0, 1000)
-        self.time_slider.setValue(500)
-        self.time_slider.valueChanged.connect(self._on_slider_changed)
-        self.time_slider.sliderReleased.connect(self._request_preview)
-        controls.addWidget(self.time_slider, 1)
-
-        self.time_label = QLabel("0.50")
-        self.time_label.setObjectName("status")
-        self.time_label.setFixedWidth(42)
-        controls.addWidget(self.time_label)
-
-        self.preview_button = QPushButton("预览帧")
-        self.preview_button.setIcon(icon("eye", theme.TEXT, 16))
-        self.preview_button.clicked.connect(self._request_preview)
-        controls.addWidget(self.preview_button)
-
-        self.render_button = QPushButton("渲染视频")
-        self.render_button.setObjectName("primary")
-        self.render_button.setIcon(icon("play", "#FFFFFF", 16))
-        self.render_button.clicked.connect(self._render_video)
-        controls.addWidget(self.render_button)
-
-        self.open_output_button = QToolButton()
-        self.open_output_button.setIcon(icon("folder-open", theme.TEXT, 20))
-        self.open_output_button.setIconSize(QSize(20, 20))
-        self.open_output_button.setToolTip("打开输出目录")
-        self.open_output_button.clicked.connect(lambda: self._open_folder(OUTPUT_DIR))
-        controls.addWidget(self.open_output_button)
-        layout.addLayout(controls)
-
-        status_row = QHBoxLayout()
-        status_row.setSpacing(10)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedHeight(14)
-        self.progress_bar.setTextVisible(False)
-        status_row.addWidget(self.progress_bar, 1)
-
-        self.status_label = QLabel("就绪")
-        self.status_label.setObjectName("status")
-        self.status_label.setWordWrap(True)
-        status_row.addWidget(self.status_label, 2)
-        layout.addLayout(status_row)
-        return container
-
-    @staticmethod
-    def _tool_button(icon_name: str, tooltip: str, handler) -> QToolButton:
-        button = QToolButton()
-        button.setIcon(icon(icon_name, theme.MUTED, 18))
-        button.setIconSize(QSize(18, 18))
-        button.setToolTip(tooltip)
-        button.clicked.connect(handler)
-        return button
-
-    # ------------------------------------------------------------- 状态辅助
-    def _set_status(self, text: str, level: str = "info") -> None:
-        colors = {
-            "info": theme.MUTED,
-            "success": theme.SUCCESS,
-            "error": theme.DANGER,
-            "warning": theme.WARNING,
-        }
-        self.status_label.setStyleSheet(f"color: {colors.get(level, theme.MUTED)};")
-        self.status_label.setText(text)
-
-    def _update_api_hint(self) -> None:
-        if self.settings.api_key.strip():
-            self.ai_status.setText(f"模型：{self.settings.model or '未填写'}，已配置 API Key。")
-            self.ai_status.setStyleSheet(f"color: {theme.MUTED};")
-        else:
-            self.ai_status.setText("尚未配置 API Key：点击右上角设置按钮填写。")
-            self.ai_status.setStyleSheet(f"color: {theme.WARNING};")
-
-    # ------------------------------------------------------------- 场景管理
-    def _setup_watcher(self) -> None:
-        self._watcher = QFileSystemWatcher([str(SCENES_DIR)], self)
-        self._watcher.directoryChanged.connect(self._on_scenes_changed)
-
-    def _on_scenes_changed(self) -> None:
-        QTimer.singleShot(300, self._reload_scenes)
-
-    def _reload_scenes(self) -> None:
-        current = self.current_scene
-        self.scene_list.blockSignals(True)
-        self.scene_list.clear()
-        for path in sorted(SCENES_DIR.glob("*.py")):
-            item = QListWidgetItem(icon("image", theme.MUTED, 16), path.name)
-            item.setData(Qt.ItemDataRole.UserRole, str(path))
-            self.scene_list.addItem(item)
-        self.scene_list.blockSignals(False)
-
-        if self.scene_list.count() == 0:
-            self.current_scene = None
-            self.preview_label.setText("还没有场景\n用左侧 AI 生成，或点击 + 新建一个")
-            return
-
-        target_row = 0
-        if current is not None:
-            for row in range(self.scene_list.count()):
-                item = self.scene_list.item(row)
-                if item is not None and item.data(Qt.ItemDataRole.UserRole) == str(current):
-                    target_row = row
-                    break
-        # setCurrentRow 会触发 currentItemChanged → _on_scene_selected，无需再手动调用
-        self.scene_list.setCurrentRow(target_row)
-
-    def _on_scene_selected(self) -> None:
-        item = self.scene_list.currentItem()
-        if item is None:
-            return
-        path = Path(str(item.data(Qt.ItemDataRole.UserRole)))
-        self.current_scene = path
-        self._request_preview()
-
-    def _create_scene(self) -> None:
-        index = 1
-        while (SCENES_DIR / f"untitled_{index}.py").exists():
-            index += 1
-        path = SCENES_DIR / f"untitled_{index}.py"
-        path.write_text(NEW_SCENE_TEMPLATE.format(name=path.stem), encoding="utf-8")
-        self._reload_scenes()
-        for row in range(self.scene_list.count()):
-            item = self.scene_list.item(row)
-            if item is not None and item.data(Qt.ItemDataRole.UserRole) == str(path):
-                self.scene_list.setCurrentRow(row)
-                break
-        self._set_status(f"已新建场景：{path.name}", "success")
-
-    def _delete_scene(self) -> None:
-        if self.current_scene is None:
-            self._set_status("请先选择一个场景", "warning")
-            return
-        answer = QMessageBox.question(
-            self,
-            "删除场景",
-            f"确定删除 {self.current_scene.name} 吗？此操作不可撤销。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        self.lyrics_drop = DropZone(
+            "file-audio",
+            "歌词（可选）",
+            "拖入 .lrc（精确卡点）或 .txt",
+            LYRICS_FILTER,
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        self.lyrics_drop.fileSelected.connect(self._load_lyrics)
+        layout.addWidget(self.lyrics_drop, 1)
+
+        info_row = QHBoxLayout()
+        info_row.setSpacing(10)
+        self.duration_chip = QLabel("时长 —")
+        self.bpm_chip = QLabel("BPM —")
+        self.beat_chip = QLabel("节拍 —")
+        self.lyric_chip = QLabel("歌词 —")
+        for chip in (self.duration_chip, self.bpm_chip, self.beat_chip, self.lyric_chip):
+            chip.setObjectName("infoChip")
+            info_row.addWidget(chip)
+        info_row.addStretch(1)
+        self.next_button = QPushButton("开始 AI 创作")
+        self.next_button.setObjectName("primary")
+        self.next_button.setIcon(icon("arrow-right", "#FFFFFF", 16))
+        self.next_button.setMinimumHeight(42)
+        self.next_button.setEnabled(False)
+        self.next_button.clicked.connect(self._go_to_ai_page)
+        info_row.addWidget(self.next_button)
+        layout.addLayout(info_row)
+        return page
+
+    def _load_audio(self, path: str) -> None:
+        audio = Path(path)
+        if not audio.exists():
+            QMessageBox.warning(self, "文件不存在", str(audio))
             return
-        self.current_scene.unlink(missing_ok=True)
-        self.current_scene = None
-        self._reload_scenes()
-        self._set_status("场景已删除", "info")
+        self.audio_path = audio
+        self.analysis = None
+        self.scene_path = None
+        self.audio_drop.set_file_text(audio.name)
+        self.next_button.setEnabled(False)
+        self.duration_chip.setText("时长 分析中…")
+        self.bpm_chip.setText("BPM 分析中…")
+        self.beat_chip.setText("节拍 分析中…")
+        if self.lyrics_path is None:
+            self.lyric_chip.setText("歌词 未导入")
 
-    def _open_scene_code(self) -> None:
-        if self.current_scene is None:
-            self._set_status("请先选择一个场景", "warning")
-            return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.current_scene)))
-
-    @staticmethod
-    def _open_folder(path: Path) -> None:
-        path.mkdir(parents=True, exist_ok=True)
-        if os.name == "nt":
-            os.startfile(str(path))  # type: ignore[attr-defined]
-        else:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
-
-    def _scene_output_name(self, suffix: str) -> Path:
-        stem = self.current_scene.stem if self.current_scene else "scene"
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return OUTPUT_DIR / f"{stem}_{stamp}{suffix}"
-
-    # ------------------------------------------------------------- 预览
-    def _on_slider_changed(self, value: int) -> None:
-        self.time_label.setText(f"{value / 1000:.2f}")
-
-    def _request_preview(self) -> None:
-        if self.current_scene is None:
-            return
-        self._preview_token += 1
-        token = self._preview_token
-        out_path = OUTPUT_DIR / f".preview_{self.current_scene.stem}.png"
-        self._set_status("正在渲染预览帧…")
-        worker = PreviewWorker(
-            self.current_scene,
-            out_path,
-            self.time_slider.value() / 1000.0,
-            DEFAULT_WIDTH,
-            DEFAULT_HEIGHT,
-            token=token,
-        )
-        worker.done.connect(self._on_preview_done)
-        worker.failed.connect(self._on_preview_failed)
+        worker = AudioAnalyzeWorker(audio)
+        worker.done.connect(self._on_audio_analyzed)
+        worker.failed.connect(self._on_audio_failed)
         worker.finished.connect(lambda: self._release_worker(worker))
         self._track_worker(worker)
         worker.start()
 
-    def _on_preview_done(self, path: str, token: int) -> None:
-        if token != self._preview_token:
+    def _on_audio_analyzed(self, analysis: AudioAnalysis) -> None:
+        self.analysis = analysis
+        self.duration_chip.setText(f"时长 {_format_time(analysis.duration)}")
+        self.bpm_chip.setText(f"BPM {analysis.bpm:.0f}")
+        self.beat_chip.setText(f"节拍 {len(analysis.beats)} 个")
+        if self.lyrics_path is not None:
+            self._refresh_lyric_info()
+        self.next_button.setEnabled(True)
+        self._on_slider_changed(self.time_slider.value())
+        self._log(f"音频分析完成：{_format_time(analysis.duration)}，约 {analysis.bpm:.0f} BPM。")
+
+    def _on_audio_failed(self, message: str) -> None:
+        QMessageBox.warning(self, "音频分析失败", message)
+        self._log(message)
+        self.duration_chip.setText("时长 —")
+
+    def _load_lyrics(self, path: str) -> None:
+        lyrics_file = Path(path)
+        if not lyrics_file.exists():
+            QMessageBox.warning(self, "文件不存在", str(lyrics_file))
             return
+        self.lyrics_path = lyrics_file
+        self.lyrics_drop.set_file_text(lyrics_file.name)
+        self._refresh_lyric_info()
+
+    def _refresh_lyric_info(self) -> None:
+        if self.lyrics_path is None:
+            self.lyric_chip.setText("歌词 未导入")
+            self.lyrics_list.clear()
+            return
+        duration = self.analysis.duration if self.analysis else None
+        try:
+            timeline = load_lyrics(self.lyrics_path, duration=duration)
+        except Exception as exc:  # noqa: BLE001
+            self.lyric_chip.setText("歌词 读取失败")
+            self._log(f"歌词读取失败：{exc}")
+            return
+        count = len(timeline.lines) if timeline else 0
+        self.lyric_chip.setText(f"歌词 {count} 行")
+        self.lyrics_list.clear()
+        if timeline:
+            for line in timeline.lines[:20]:
+                item = QListWidgetItem(f"{_format_time(line.start)}  {line.text}")
+                self.lyrics_list.addItem(item)
+
+    def _go_to_ai_page(self) -> None:
+        if self.analysis is None or self.audio_path is None:
+            self._log("请先选择音乐文件。")
+            return
+        self._set_step(1)
+        self.stack.setCurrentIndex(1)
+        if self.scene_path is None:
+            self._start_ai_generation()
+        else:
+            self._request_preview()
+
+    # ------------------------------------------------------------------ 第 2 步
+    def _build_ai_page(self) -> QWidget:
+        page = QWidget()
+        layout = QHBoxLayout(page)
+        layout.setContentsMargins(28, 18, 28, 22)
+        layout.setSpacing(18)
+
+        left = QFrame()
+        left.setObjectName("panel")
+        left.setFixedWidth(380)
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(16, 16, 16, 16)
+        left_layout.setSpacing(10)
+
+        idea_title = QLabel("给 AI 一点灵感（可选）")
+        idea_title.setObjectName("sectionTitle")
+        left_layout.addWidget(idea_title)
+        self.idea_edit = QTextEdit()
+        self.idea_edit.setPlaceholderText(
+            "例如：想要手绘水彩风格，画面跟着副歌的情绪变暖；或者：以歌词里的“月亮”为主线。"
+        )
+        self.idea_edit.setMinimumHeight(84)
+        self.idea_edit.setMaximumHeight(120)
+        left_layout.addWidget(self.idea_edit)
+
+        lyric_title = QLabel("歌词预览")
+        lyric_title.setObjectName("sectionTitle")
+        left_layout.addWidget(lyric_title)
+        self.lyrics_list = QListWidget()
+        self.lyrics_list.setMinimumHeight(120)
+        left_layout.addWidget(self.lyrics_list, 1)
+
+        button_row = QHBoxLayout()
+        self.regenerate_button = QPushButton("重新生成")
+        self.regenerate_button.setIcon(icon("refresh-ccw", theme.TEXT, 16))
+        self.regenerate_button.clicked.connect(self._start_ai_generation)
+        button_row.addWidget(self.regenerate_button)
+        self.continue_button = QPushButton("下一步：渲染导出")
+        self.continue_button.setObjectName("primary")
+        self.continue_button.setIcon(icon("arrow-right", "#FFFFFF", 16))
+        self.continue_button.setEnabled(False)
+        self.continue_button.clicked.connect(self._go_to_export_page)
+        button_row.addWidget(self.continue_button)
+        left_layout.addLayout(button_row)
+
+        right = QFrame()
+        right.setObjectName("panel")
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(14, 14, 14, 14)
+        right_layout.setSpacing(10)
+
+        self.preview_label = QLabel("AI 生成画面后会显示在这里")
+        self.preview_label.setObjectName("mvPreview")
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_label.setMinimumSize(360, 420)
+        right_layout.addWidget(self.preview_label, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(10)
+        self.time_slider = QSlider(Qt.Orientation.Horizontal)
+        self.time_slider.setRange(0, 1000)
+        self.time_slider.setValue(350)
+        self.time_slider.setEnabled(False)
+        self.time_slider.valueChanged.connect(self._on_slider_changed)
+        self.time_slider.sliderReleased.connect(self._request_preview)
+        controls.addWidget(self.time_slider, 1)
+        self.time_label = QLabel("00:00")
+        self.time_label.setObjectName("chip")
+        controls.addWidget(self.time_label)
+        self.preview_button = QPushButton("刷新预览")
+        self.preview_button.setIcon(icon("eye", theme.TEXT, 16))
+        self.preview_button.setEnabled(False)
+        self.preview_button.clicked.connect(self._request_preview)
+        controls.addWidget(self.preview_button)
+        right_layout.addLayout(controls)
+
+        self.ai_progress = QProgressBar()
+        self.ai_progress.setRange(0, 0)
+        self.ai_progress.setVisible(False)
+        self.ai_progress.setFixedHeight(12)
+        self.ai_progress.setTextVisible(False)
+        right_layout.addWidget(self.ai_progress)
+
+        self.log_view = QPlainTextEdit()
+        self.log_view.setObjectName("logView")
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumHeight(96)
+        right_layout.addWidget(self.log_view)
+
+        layout.addWidget(left)
+        layout.addWidget(right, 1)
+        return page
+
+    def _start_ai_generation(self) -> None:
+        if self._ai_busy:
+            return
+        if self.analysis is None or self.audio_path is None:
+            self._log("请先导入音乐。")
+            return
+        if not self.settings.api_key.strip():
+            QMessageBox.information(
+                self,
+                "需要配置 AI",
+                "请先在设置中填写 API Key，AI 才能生成画面。\n\n默认支持 DeepSeek，也可以填任何 OpenAI 兼容服务。",
+            )
+            self._open_settings()
+            if not self.settings.api_key.strip():
+                return
+
+        self._ai_busy = True
+        self._set_step(1)
+        self.preview_source = None
+        self.preview_label.setPixmap(QPixmap())
+        self.preview_label.setText("AI 正在创作，请稍候…")
+        self.regenerate_button.setEnabled(False)
+        self.continue_button.setEnabled(False)
+        self.preview_button.setEnabled(False)
+        self.ai_progress.setVisible(True)
+        self.log_view.clear()
+        self._log("开始理解这首歌的节奏和歌词…")
+
+        worker = MVSceneAIWorker(
+            audio_name=self.audio_path.name,
+            analysis=self.analysis,
+            lyrics_path=self.lyrics_path,
+            idea=self.idea_edit.toPlainText(),
+            settings=self.settings,
+            scenes_dir=SCENES_DIR,
+            output_dir=OUTPUT_DIR,
+        )
+        worker.status.connect(self._log)
+        worker.done.connect(self._on_ai_done)
+        worker.failed.connect(self._on_ai_failed)
+        worker.finished.connect(lambda: self._release_worker(worker))
+        self._track_worker(worker)
+        worker.start()
+
+    def _on_ai_done(self, scene_path: str, preview_path: str) -> None:
+        self._ai_busy = False
+        self.scene_path = Path(scene_path)
+        self.ai_progress.setVisible(False)
+        self.regenerate_button.setEnabled(True)
+        self.continue_button.setEnabled(True)
+        self.preview_button.setEnabled(True)
+        self.time_slider.setEnabled(True)
+        if self.analysis is not None:
+            seconds = max(0.5, min(self.analysis.duration - 0.2, self.analysis.duration * 0.35))
+            self.time_slider.setValue(int(seconds / self.analysis.duration * 1000))
+            self._on_slider_changed(self.time_slider.value())
+        self._show_preview(preview_path)
+        self._log("画面已生成。可以拖动时间轴查看不同段落，或点“重新生成”换一版。")
+
+    def _on_ai_failed(self, message: str) -> None:
+        self._ai_busy = False
+        self.ai_progress.setVisible(False)
+        self.regenerate_button.setEnabled(True)
+        self._log(message)
+        QMessageBox.warning(self, "AI 生成失败", message)
+
+    def _on_slider_changed(self, value: int) -> None:
+        if self.analysis is not None:
+            self.time_label.setText(_format_time(self.analysis.duration * value / 1000))
+
+    def _request_preview(self) -> None:
+        if self.scene_path is None or self.analysis is None:
+            return
+        seconds = self.analysis.duration * self.time_slider.value() / 1000
+        out_path = OUTPUT_DIR / "mv_preview.png"
+        worker = MVPreviewWorker(
+            scene_path=self.scene_path,
+            analysis=self.analysis,
+            lyrics_path=self.lyrics_path,
+            seconds=seconds,
+            out_path=out_path,
+        )
+        worker.done.connect(self._show_preview)
+        worker.failed.connect(self._log)
+        worker.finished.connect(lambda: self._release_worker(worker))
+        self._track_worker(worker)
+        worker.start()
+
+    def _show_preview(self, path: str) -> None:
         pixmap = QPixmap(path)
         if pixmap.isNull():
-            self._set_status("预览图加载失败", "error")
+            self._log("预览图加载失败。")
             return
-        self._preview_source = pixmap
+        self.preview_source = pixmap
         self._rescale_preview()
-        self._set_status(f"预览：{self.current_scene.name if self.current_scene else ''}  t = {self.time_slider.value() / 1000:.2f}")
-
-    def _on_preview_failed(self, message: str, token: int) -> None:
-        if token != self._preview_token:
-            return
-        self._set_status(f"预览失败：{message}", "error")
 
     def _rescale_preview(self) -> None:
-        if self._preview_source is None:
+        if self.preview_source is None:
             return
-        available = self.preview_label.size() - QSize(8, 8)
+        available = self.preview_label.size() - QSize(10, 10)
         if available.width() < 10 or available.height() < 10:
             return
         self.preview_label.setPixmap(
-            self._preview_source.scaled(
+            self.preview_source.scaled(
                 available,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
@@ -509,20 +631,146 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         self._rescale_preview()
 
-    # ------------------------------------------------------------- 渲染视频
-    def _render_video(self) -> None:
-        if self.current_scene is None:
-            self._set_status("请先选择一个场景", "warning")
-            return
-        out_path = self._scene_output_name(".mp4")
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.render_button.setEnabled(False)
-        self.preview_button.setEnabled(False)
-        self._set_status("正在渲染视频…")
+    # ------------------------------------------------------------------ 第 3 步
+    def _build_export_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 22, 32, 26)
+        layout.setSpacing(14)
 
-        worker = RenderWorker(self.current_scene, out_path)
+        title = QLabel("渲染导出")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+        hint = QLabel("确认参数后开始渲染。长歌曲需要一些时间，可以先用“30 秒样片”快速看效果。")
+        hint.setObjectName("pageHint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        card = QFrame()
+        card.setObjectName("panel")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 18, 18, 18)
+        card_layout.setSpacing(12)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self.resolution_combo = QComboBox()
+        self.resolution_combo.addItem("1080 × 1920（竖屏推荐）", (1080, 1920))
+        self.resolution_combo.addItem("720 × 1280（更快）", (720, 1280))
+        self.resolution_combo.addItem("1080 × 1080（方形）", (1080, 1080))
+        form.addRow("分辨率", self.resolution_combo)
+
+        self.fps_combo = QComboBox()
+        self.fps_combo.addItem("24 帧/秒（有电影感）", 24)
+        self.fps_combo.addItem("30 帧/秒（更流畅）", 30)
+        form.addRow("帧率", self.fps_combo)
+
+        output_row = QHBoxLayout()
+        self.output_edit = QLineEdit()
+        self.output_edit.setPlaceholderText("留空则自动保存到 output 目录")
+        output_row.addWidget(self.output_edit, 1)
+        browse_button = QPushButton("浏览…")
+        browse_button.clicked.connect(self._choose_output)
+        output_row.addWidget(browse_button)
+        output_container = QWidget()
+        output_container.setLayout(output_row)
+        output_row.setContentsMargins(0, 0, 0, 0)
+        form.addRow("输出文件", output_container)
+
+        self.sample_checkbox = QCheckBox("先导出 30 秒样片（更快试用）")
+        form.addRow("", self.sample_checkbox)
+        card_layout.addLayout(form)
+
+        self.render_button = QPushButton("开始渲染 MV")
+        self.render_button.setObjectName("primary")
+        self.render_button.setIcon(icon("play", "#FFFFFF", 18))
+        self.render_button.setMinimumHeight(46)
+        self.render_button.clicked.connect(self._start_render)
+        card_layout.addWidget(self.render_button)
+
+        self.render_progress = QProgressBar()
+        self.render_progress.setRange(0, 100)
+        self.render_progress.setValue(0)
+        self.render_progress.setVisible(False)
+        self.render_progress.setFixedHeight(16)
+        card_layout.addWidget(self.render_progress)
+
+        self.render_status = QLabel("等待开始")
+        self.render_status.setObjectName("status")
+        self.render_status.setWordWrap(True)
+        card_layout.addWidget(self.render_status)
+
+        done_row = QHBoxLayout()
+        self.open_video_button = QPushButton("打开视频")
+        self.open_video_button.setIcon(icon("play", theme.TEXT, 16))
+        self.open_video_button.setVisible(False)
+        self.open_video_button.clicked.connect(lambda: self._open_folder(OUTPUT_DIR))
+        done_row.addWidget(self.open_video_button)
+        self.open_folder_button = QPushButton("打开输出目录")
+        self.open_folder_button.setIcon(icon("folder-open", theme.TEXT, 16))
+        self.open_folder_button.clicked.connect(lambda: self._open_folder(OUTPUT_DIR))
+        done_row.addWidget(self.open_folder_button)
+        done_row.addStretch(1)
+        self.restart_button = QPushButton("再做一首")
+        self.restart_button.setIcon(icon("refresh-ccw", theme.TEXT, 16))
+        self.restart_button.clicked.connect(self._restart)
+        done_row.addWidget(self.restart_button)
+        card_layout.addLayout(done_row)
+
+        layout.addWidget(card)
+        layout.addStretch(1)
+        return page
+
+    def _go_to_export_page(self) -> None:
+        if self.scene_path is None:
+            self._log("还没有生成画面，请先让 AI 创作。")
+            return
+        self._set_step(2)
+        self.stack.setCurrentIndex(2)
+        if not self.output_edit.text().strip():
+            stem = self.audio_path.stem if self.audio_path else "mv"
+            self.output_edit.setText(str(OUTPUT_DIR / f"mv_{stem}.mp4"))
+        self.render_status.setText("等待开始")
+
+    def _choose_output(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "保存 MV", self.output_edit.text(), "MP4 视频 (*.mp4)")
+        if path:
+            self.output_edit.setText(path)
+
+    def _start_render(self) -> None:
+        if self._rendering:
+            return
+        if self.scene_path is None or self.audio_path is None or self.analysis is None:
+            self._log("缺少音乐或画面，请返回上一步。")
+            return
+
+        width, height = self.resolution_combo.currentData()
+        fps = int(self.fps_combo.currentData())
+        output_text = self.output_edit.text().strip()
+        output = Path(output_text) if output_text else OUTPUT_DIR / f"mv_{self.audio_path.stem}.mp4"
+        if not output.is_absolute():
+            output = PROJECT_ROOT / output
+        max_seconds = 30.0 if self.sample_checkbox.isChecked() else None
+
+        self._rendering = True
+        self.render_button.setEnabled(False)
+        self.render_progress.setVisible(True)
+        self.render_progress.setValue(0)
+        self.open_video_button.setVisible(False)
+        self.render_status.setText("正在渲染…首次使用可能需要几分钟。")
+
+        worker = MVRenderWorker(
+            scene_path=self.scene_path,
+            audio_path=self.audio_path,
+            lyrics_path=self.lyrics_path,
+            out_path=output,
+            fps=fps,
+            width=width,
+            height=height,
+            max_seconds=max_seconds,
+        )
         worker.progress.connect(self._on_render_progress)
         worker.done.connect(self._on_render_done)
         worker.failed.connect(self._on_render_failed)
@@ -532,63 +780,89 @@ class MainWindow(QMainWindow):
 
     def _on_render_progress(self, current: int, total: int) -> None:
         percent = int(current * 100 / total) if total else 0
-        self.progress_bar.setValue(percent)
-        self.progress_bar.setFormat(f"{percent}%")
+        self.render_progress.setValue(percent)
+        self.render_status.setText(f"正在渲染 {current}/{total} 帧（{percent}%）…")
 
     def _on_render_done(self, path: str) -> None:
-        self.progress_bar.setVisible(False)
+        self._rendering = False
         self.render_button.setEnabled(True)
-        self.preview_button.setEnabled(True)
-        self._set_status(f"视频已生成：{path}", "success")
+        self.render_progress.setValue(100)
+        self.render_status.setText(f"渲染完成：{path}")
+        self.open_video_button.setVisible(True)
+        QMessageBox.information(self, "渲染完成", f"MV 已生成：\n{path}")
 
     def _on_render_failed(self, message: str) -> None:
-        self.progress_bar.setVisible(False)
+        self._rendering = False
         self.render_button.setEnabled(True)
-        self.preview_button.setEnabled(True)
-        self._set_status(f"渲染失败：{message}", "error")
+        self.render_progress.setVisible(False)
+        self.render_status.setText(message)
         QMessageBox.warning(self, "渲染失败", message)
 
-    # ------------------------------------------------------------- AI 生成
-    def _generate_scene(self) -> None:
-        description = self.description_edit.toPlainText().strip()
-        if not description:
-            self._set_status("请先填写画面描述", "warning")
-            return
-        if not self.settings.api_key.strip():
-            self._set_status("还没有配置 API Key", "warning")
-            self._open_settings()
-            if not self.settings.api_key.strip():
-                return
+    def _restart(self) -> None:
+        self.audio_path = None
+        self.lyrics_path = None
+        self.analysis = None
+        self.scene_path = None
+        self.preview_source = None
+        self.audio_drop.reset_text()
+        self.lyrics_drop.reset_text()
+        self.preview_label.clear()
+        self.preview_label.setText("AI 生成画面后会显示在这里")
+        self.log_view.clear()
+        self.lyrics_list.clear()
+        self.time_slider.setValue(350)
+        self.time_slider.setEnabled(False)
+        self.time_label.setText("00:00")
+        self.duration_chip.setText("时长 —")
+        self.bpm_chip.setText("BPM —")
+        self.beat_chip.setText("节拍 —")
+        self.lyric_chip.setText("歌词 —")
+        self.next_button.setEnabled(False)
+        self.continue_button.setEnabled(False)
+        self.preview_button.setEnabled(False)
+        self.render_progress.setVisible(False)
+        self.render_status.setText("等待开始")
+        self.stack.setCurrentIndex(0)
+        self._set_step(0)
 
-        self.generate_button.setEnabled(False)
-        self.ai_status.setText("正在请求模型…")
-        worker = AIWorker(description, self.settings, SCENES_DIR)
-        worker.status.connect(self._on_ai_status)
-        worker.done.connect(self._on_ai_done)
-        worker.failed.connect(self._on_ai_failed)
-        worker.finished.connect(lambda: self._release_worker(worker))
-        self._track_worker(worker)
-        worker.start()
+    # ------------------------------------------------------------------ 步骤条
+    def _set_step(self, active: int) -> None:
+        for index, frame in enumerate(self.step_frames):
+            state = "done" if index < active else ("active" if index == active else "todo")
+            frame.setProperty("state", state)
+            if index < active:
+                self.step_numbers[index].setText("")
+                self.step_numbers[index].setPixmap(
+                    icon("check", "#FFFFFF", 14).pixmap(14, 14)
+                )
+            else:
+                self.step_numbers[index].setPixmap(QPixmap())
+                self.step_numbers[index].setText(str(index + 1))
+            frame.style().unpolish(frame)
+            frame.style().polish(frame)
 
-    def _on_ai_status(self, message: str) -> None:
-        self.ai_status.setText(message)
+    def _on_step_clicked(self, index: int) -> None:
+        if index == 0:
+            self.stack.setCurrentIndex(0)
+            self._set_step(0)
+        elif index == 1 and self.analysis is not None:
+            self.stack.setCurrentIndex(1)
+            self._set_step(1)
+        elif index == 2 and self.scene_path is not None:
+            self._go_to_export_page()
 
-    def _on_ai_done(self, path: str) -> None:
-        self.generate_button.setEnabled(True)
-        self.ai_status.setText(f"生成成功：{Path(path).name}")
-        self.ai_status.setStyleSheet(f"color: {theme.SUCCESS};")
-        self.current_scene = Path(path)
-        self._reload_scenes()
-        self._set_status("AI 场景已生成并自动预览", "success")
+    # ------------------------------------------------------------------ 通用
+    def _log(self, message: str) -> None:
+        self.log_view.appendPlainText(message)
 
-    def _on_ai_failed(self, message: str) -> None:
-        self.generate_button.setEnabled(True)
-        self.ai_status.setText(f"生成失败：{message}")
-        self.ai_status.setStyleSheet(f"color: {theme.DANGER};")
-        self._set_status("AI 生成失败", "error")
-        QMessageBox.warning(self, "AI 生成失败", message)
+    def _update_ai_chip(self) -> None:
+        if self.settings.api_key.strip():
+            self.ai_chip.setText(f"AI 就绪 · {self.settings.model or '默认模型'}")
+            self.ai_chip.setStyleSheet(f"color: {theme.SUCCESS};")
+        else:
+            self.ai_chip.setText("AI 未配置")
+            self.ai_chip.setStyleSheet(f"color: {theme.WARNING};")
 
-    # ------------------------------------------------------------- 设置与更新
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -598,11 +872,19 @@ class MainWindow(QMainWindow):
             self.settings.save()
         except OSError as exc:
             QMessageBox.warning(self, "保存失败", str(exc))
-        self._update_api_hint()
-        self._set_status("设置已保存", "success")
+        self._update_ai_chip()
         if self.settings.auto_check_updates:
             self._check_updates(manual=False)
 
+    @staticmethod
+    def _open_folder(path: Path) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    # ------------------------------------------------------------------ 更新
     def _startup_checks(self) -> None:
         if self.settings.auto_check_updates:
             self._check_updates(manual=False)
@@ -612,9 +894,6 @@ class MainWindow(QMainWindow):
             return
         self._checking_updates = True
         self.update_button.setEnabled(False)
-        if manual:
-            self._set_status("正在检查更新…")
-
         worker = UpdateCheckWorker()
         worker.result.connect(lambda info: self._on_update_result(info, manual))
         worker.failed.connect(lambda message: self._on_update_failed(message, manual))
@@ -622,26 +901,16 @@ class MainWindow(QMainWindow):
         self._track_worker(worker)
         worker.start()
 
-    def _on_update_result(self, info, manual: bool) -> None:
+    def _on_update_result(self, info: ReleaseInfo | None, manual: bool) -> None:
         self._checking_updates = False
         self.update_button.setEnabled(True)
-        self.settings.last_update_check = datetime.now().isoformat(timespec="seconds")
-        try:
-            self.settings.save()
-        except OSError:
-            pass
-
         if info is None:
             if manual:
-                self._set_status(f"已是最新版本（v{__version__}）", "success")
+                QMessageBox.information(self, "检查更新", f"已经是最新版本（v{__version__}）。")
             return
-
         self.pending_update = info
-        self.banner_text.setText(
-            f"发现新版本 v{info.version}（当前 v{__version__}）"
-        )
+        self.banner_text.setText(f"发现新版本 v{info.version}（当前 v{__version__}）")
         self.update_banner.setVisible(True)
-        self._set_status(f"发现新版本 v{info.version}", "warning")
         if self.settings.auto_install_updates:
             self._install_update()
 
@@ -649,11 +918,10 @@ class MainWindow(QMainWindow):
         self._checking_updates = False
         self.update_button.setEnabled(True)
         if manual:
-            self._set_status(f"检查更新失败：{message}", "error")
+            QMessageBox.warning(self, "检查更新失败", message)
 
     def _install_update(self) -> None:
         self.install_button.setEnabled(False)
-        self._set_status("正在更新，请稍候…")
         worker = InstallUpdateWorker()
         worker.done.connect(self._on_update_installed)
         worker.failed.connect(self._on_update_install_failed)
@@ -664,19 +932,17 @@ class MainWindow(QMainWindow):
     def _on_update_installed(self, message: str) -> None:
         self.install_button.setEnabled(True)
         self.update_banner.setVisible(False)
-        self._set_status("更新完成", "success")
         QMessageBox.information(
             self,
             "更新完成",
-            "更新已完成，请重启 codemv 以使用新版本。\n\n" + (message or ""),
+            "更新已完成，请重启 codemv 使用新版本。\n\n" + (message or ""),
         )
 
     def _on_update_install_failed(self, message: str) -> None:
         self.install_button.setEnabled(True)
-        self._set_status(f"更新失败：{message}", "error")
         QMessageBox.warning(self, "更新失败", message)
 
-    # ------------------------------------------------------------- 线程管理
+    # ------------------------------------------------------------------ 线程
     def _track_worker(self, worker) -> None:
         self._workers.append(worker)
 
@@ -685,7 +951,6 @@ class MainWindow(QMainWindow):
             self._workers.remove(worker)
 
     def shutdown(self) -> None:
-        """等待后台线程结束，避免窗口销毁时线程仍在运行。"""
         for worker in list(self._workers):
             if worker.isRunning():
                 worker.requestInterruption()
