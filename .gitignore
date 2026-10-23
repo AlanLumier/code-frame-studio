@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.vendor/
+.wheels/
+.tmp/
+
+# 测试与缓存
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 渲染产物（逐帧图片与视频不入库）
+output/
+frames/
+*.mp4
+*.gif
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
