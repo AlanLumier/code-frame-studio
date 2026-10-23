@@ -1,0 +1,13 @@
+{
+  "name": "codemv-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "codemv desktop app - AI writes code, renders frame by frame",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "45.0.0"
+  }
+}

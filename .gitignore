@@ -35,3 +35,6 @@ Thumbs.db
 
 # p5 渲染后端依赖
 js/node_modules/
+
+# 新桌面应用依赖
+desktop-app/node_modules/
