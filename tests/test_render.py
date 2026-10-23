@@ -44,6 +44,8 @@ class SceneContractTest(unittest.TestCase):
 
     def test_each_scene_renders_valid_frame(self) -> None:
         for scene in sorted(SCENES_DIR.glob("*.py")):
+            if scene.name.startswith("mv_"):
+                continue  # MV 场景需要音频上下文，单独在 test_mv.py 中测试
             with self.subTest(scene=scene.name):
                 render_frame = load_scene(scene)
                 image = render_frame(0.5)

@@ -12,6 +12,8 @@ codemv 是一个桌面应用（PySide6）：你描述画面，AI 生成渲染代
 - **桌面应用本体**：场景管理、单帧预览、进度滑块、视频渲染、输出目录一键打开
 - **AI 生成场景**：接入 OpenAI 兼容接口（默认 DeepSeek），生成后自动试渲染；
   若代码运行报错，会把错误自动回传给模型修复（最多 3 次）
+- **音乐 MV（v0.3）**：导入音频自动分析 BPM、节拍与能量；叠加 LRC 歌词并卡点；
+  逐帧渲染后自动混入原曲，输出带声音的竖屏 MV
 - **SVG 图标**：界面图标来自开源 [Lucide](https://lucide.dev) 图标集（ISC 协议），
   全部为矢量 SVG，不依赖 emoji
 - **更新机制**：从 GitHub 读取最新 Release/Tag，支持手动检查；
@@ -63,7 +65,9 @@ py -m codemv gui
 | `python -m codemv gui` | 启动桌面应用 |
 | `python -m codemv preview <scene.py> [-t 0.5] [-o output/preview.png]` | 渲染单帧 |
 | `python -m codemv render <scene.py> [-o output/video.mp4] [--fps 30] [--duration 6]` | 渲染视频 |
-| `python -m codemv prompt "画面描述"` | 输出给 AI 的场景生成提示词 |
+| `python -m codemv mv <scene.py> --audio song.mp3 [--lyrics song.lrc] [-o output/mv.mp4]` | 渲染音乐 MV |
+| `python -m codemv mv-preview <scene.py> --audio song.mp3 [-t 10] [-o output/p.png]` | 渲染 MV 预览帧 |
+| `python -m codemv prompt "画面描述" [--mv]` | 输出给 AI 的场景生成提示词 |
 
 ## 场景契约（AI 生成的代码长这样）
 
@@ -82,13 +86,39 @@ def render_frame(t: float) -> Image.Image:
 
 要求：仅使用标准库 + `Pillow` + `numpy`；随机数固定种子；单帧渲染控制在 50ms 以内。
 
+## 音乐 MV（v0.3）
+
+把一首歌做成带歌词、卡点的逐帧动画 MV：
+
+```powershell
+# 渲染某一秒的预览帧（调画面最快）
+py -m codemv mv-preview scenes/mv_night_sea.py --audio song.mp3 --lyrics song.lrc -t 10 -o output/preview.png --width 720 --height 1280
+
+# 渲染整首 MV（默认 1080x1920 竖屏、24fps）
+py -m codemv mv scenes/mv_night_sea.py --audio song.mp3 --lyrics song.lrc -o output/mv.mp4
+```
+
+工作方式：
+
+- 用 ffmpeg 解码音频，计算 **BPM、节拍点、能量包络与低/中/高频强度**
+- 歌词支持 `.lrc`（`[mm:ss.xx]歌词`），渲染器自动做**卡拉 OK 逐字高亮 + 淡入淡出**
+- MV 场景的入口是 `render_frame(t, ctx)`，`ctx` 里带 `beat`（节拍脉冲）、
+  `energy`（响度）、`spectrum`（频段）等实时值，画面可以据此卡点
+- 渲染完成后自动把原曲混入视频（AAC 192k），输出可直接播放的 mp4
+- 纯文本歌词（无时间轴）也可用：会按整曲时长平均分配（仅作兜底）
+
+给 AI 生成 MV 场景的提示词：`py -m codemv prompt --mv "夜晚海边，月亮，漂浮的孔明灯"`。
+
 ## 项目结构
 
 ```
 code-frame-studio/
 ├── codemv/
-│   ├── cli.py              # 命令行入口（gui / render / preview / prompt）
+│   ├── cli.py              # 命令行入口（gui / render / preview / mv / prompt）
 │   ├── renderer.py         # 场景加载、逐帧渲染、ffmpeg 合成
+│   ├── audio.py            # 音频解码、BPM / 节拍 / 能量分析
+│   ├── lyrics.py           # LRC 歌词解析与时间轴
+│   ├── mv.py               # MV 渲染（歌词叠加 + 混音）
 │   ├── prompt.py           # 提示词构建
 │   └── app/                # 桌面应用
 │       ├── main_window.py  # 主窗口
@@ -101,8 +131,9 @@ code-frame-studio/
 │       ├── theme.py        # 深色主题 QSS
 │       └── widgets.py      # 自绘开关等
 ├── assets/icons/           # Lucide SVG 图标（ISC）
-├── scenes/                 # 样例与 AI 生成的场景
-├── prompts/scene_prompt.md # 给 AI 的提示词模板
+├── scenes/                 # 样例场景（含 mv_night_sea.py 月夜海面 MV 场景）
+├── prompts/scene_prompt.md # 给 AI 的场景提示词模板
+├── prompts/mv_prompt.md    # 给 AI 的 MV 场景提示词模板
 ├── tests/                  # unittest 测试集
 ├── docs/screenshot.png
 ├── output/                 # 渲染产物（已 gitignore）
@@ -153,7 +184,9 @@ python -m unittest discover -s tests -v
 
 - [x] MVP：渲染内核 + 场景契约 + CLI + 样例场景 + 测试
 - [x] v0.2.0：桌面应用界面、AI 生成与自动修复、SVG 图标、更新检查与开关
-- [ ] 导出 GIF / 多场景拼接 / 参数化场景模板
+- [x] v0.3.0：音乐 MV（BPM/节拍分析、LRC 歌词卡拉 OK、混音导出）
+- [ ] 桌面界面接入 MV 工作台（选歌 → 选场景 → 预览 → 导出）
+- [ ] 多场景分镜与转场、更多内置 MV 样式
 - [ ] 安装包打包（Windows exe）
 
 图标授权：Lucide Icons — ISC License，见 `assets/icons/LICENSE`。

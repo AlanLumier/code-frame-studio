@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "prompts" / "scene_prompt.md"
+MV_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "prompts" / "mv_prompt.md"
 
 _FALLBACK_TEMPLATE = """# 场景代码生成任务
 
@@ -32,3 +33,16 @@ def build_scene_prompt(description: str) -> str:
     except FileNotFoundError:
         template = _FALLBACK_TEMPLATE
     return template.replace("{{description}}", description)
+
+
+def build_mv_prompt(description: str, orientation: str = "竖屏 1080×1920（9:16）") -> str:
+    """把歌曲描述填入 MV 场景生成提示词模板。"""
+    description = (description or "").strip()
+    if not description:
+        raise ValueError("歌曲描述不能为空")
+
+    try:
+        template = MV_TEMPLATE_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        template = "请生成一个 MV 场景：{{description}}（{{orientation}}）"
+    return template.replace("{{description}}", description).replace("{{orientation}}", orientation)
