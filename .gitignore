@@ -29,3 +29,6 @@ Thumbs.db
 
 # 临时依赖探测目录
 .probe-target/
+
+# npm 本地缓存
+.npm-cache/
