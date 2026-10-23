@@ -113,10 +113,14 @@ class AIWorker(QThread):
         self._scenes_dir = scenes_dir
 
     def run(self) -> None:
-        messages = scene_messages(
-            self._description,
-            scene_prompt=build_scene_prompt(self._description),
-        )
+        try:
+            messages = scene_messages(
+                self._description,
+                scene_prompt=build_scene_prompt(self._description),
+            )
+        except AIClientError as exc:
+            self.failed.emit(str(exc))
+            return
 
         last_error = ""
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
