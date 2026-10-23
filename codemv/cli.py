@@ -48,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     prompt = subparsers.add_parser("prompt", help="输出给 AI 的场景生成提示词")
     prompt.add_argument("description", help="你想要的画面描述，例如：夕阳下的赛博城市")
+
+    subparsers.add_parser("gui", help="启动桌面图形界面（需要 PySide6）")
     return parser
 
 
@@ -77,6 +79,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"预览帧已生成：{output}")
         elif args.command == "prompt":
             print(build_scene_prompt(args.description))
+        elif args.command == "gui":
+            try:
+                from .app.main_window import launch
+            except ImportError as exc:
+                print(
+                    "错误：启动图形界面需要 PySide6，请先执行 pip install -r requirements.txt"
+                    f"（{exc}）",
+                    file=sys.stderr,
+                )
+                return 1
+            return launch()
         return 0
     except SceneError as exc:
         print(f"错误：{exc}", file=sys.stderr)

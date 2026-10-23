@@ -18,8 +18,14 @@ frames/
 *.mp4
 *.gif
 
+# 本地设置（含 API Key）
+.codemv/
+
 # 编辑器
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 临时依赖探测目录
+.probe-target/

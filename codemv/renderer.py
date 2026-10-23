@@ -87,8 +87,12 @@ def render_frames(
     fps: int = DEFAULT_FPS,
     duration: float = DEFAULT_DURATION,
     progress: bool = True,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> list[Path]:
-    """逐帧渲染并保存为 PNG，返回帧文件列表。"""
+    """逐帧渲染并保存为 PNG，返回帧文件列表。
+
+    progress_callback 不为空时，每渲染完一帧回调 (已完成帧数, 总帧数)。
+    """
     if fps <= 0:
         raise SceneError("fps 必须大于 0")
     if duration <= 0:
@@ -121,11 +125,13 @@ def render_frames(
             raise SceneError(f"渲染第 {index + 1}/{frame_count} 帧失败：{exc}") from exc
         frames.append(frame_path)
 
-        if progress:
+        if progress_callback is not None:
+            progress_callback(index + 1, frame_count)
+        elif progress:
             ratio = (index + 1) / frame_count
             bar = "#" * int(ratio * 24)
             print(f"\r渲染帧 {index + 1}/{frame_count} [{bar:<24}] {ratio:6.1%}", end="", file=sys.stderr)
-    if progress:
+    if progress and progress_callback is None:
         print(file=sys.stderr)
 
     return frames
@@ -209,6 +215,7 @@ def render_video(
     duration: float = DEFAULT_DURATION,
     frame_dir: str | Path | None = None,
     progress: bool = True,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> Path:
     """完整流程：加载场景 → 逐帧渲染 → 合成 mp4。
 
@@ -232,6 +239,7 @@ def render_video(
             fps=fps,
             duration=duration,
             progress=progress,
+            progress_callback=progress_callback,
         )
         return compose_video(frame_directory, output, fps=fps)
 
@@ -247,6 +255,7 @@ def render_video(
             fps=fps,
             duration=duration,
             progress=progress,
+            progress_callback=progress_callback,
         )
         return compose_video(temp_directory, output, fps=fps)
     finally:
