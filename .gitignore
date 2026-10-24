@@ -43,3 +43,6 @@ desktop-app/node_modules/
 lemo-opuscar/
 .playwright-browsers/
 .uv-cache/
+
+# 本地 ffmpeg 二进制
+tools/ffmpeg/
