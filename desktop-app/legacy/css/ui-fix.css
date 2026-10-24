@@ -8,3 +8,23 @@
   .style-list { max-height: 38vh; }
 }
 body { -webkit-font-smoothing: antialiased; }
+
+/* 顶栏布局：状态条移到最顶部；品牌 / Code MV / 歌曲名居中 */
+.app {
+  grid-template-rows: 28px 64px minmax(0, 1fr);
+  grid-template-areas: "meta" "topbar" "workspace";
+}
+.topbar {
+  justify-content: center;
+  position: relative;
+}
+.topbar-actions {
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+@media (max-width: 1200px) {
+  .topbar { justify-content: space-between; }
+  .topbar-actions { position: static; transform: none; }
+}

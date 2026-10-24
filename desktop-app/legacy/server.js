@@ -415,25 +415,60 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    /* 内置无 Key AI：网页端与桌面端共用，不需要 preload 桥 */
+    /* 内置无 Key AI：网页端与桌面端共用。Pollinations 是开源免费网关，做多模型/多端点重试。 */
     if (u.pathname === "/api/ai/chat" && req.method === "POST") {
       let raw = "";
       try {
         for await (const chunk of req) raw += chunk;
         const payload = JSON.parse(raw || "{}");
         const messages = Array.isArray(payload.messages) ? payload.messages : [];
-        const upstream = await fetch("https://text.pollinations.ai/openai", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "User-Agent": "codemv" },
-          body: JSON.stringify({ model: "openai", messages, max_tokens: 2200, temperature: 0.7, referrer: "codemv" })
-        });
-        const data = await upstream.json().catch(() => ({}));
-        const text = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : "";
-        if (!upstream.ok || !text) {
-          sendJson(res, 502, { ok: false, error: "AI 服务 " + upstream.status + "（免费模型每约 30 秒一次）" });
-          return;
+        const prompt = messages.map((m) => (m.role || "user") + ": " + (m.content || "")).join("\n\n");
+        let lastStatus = 0;
+        let lastBody = "";
+        const posts = ["openai", "mistral"];
+        for (const modelName of posts) {
+          try {
+            const upstream = await fetch("https://text.pollinations.ai/openai", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "User-Agent": "codemv" },
+              body: JSON.stringify({ model: modelName, messages, max_tokens: 2200, temperature: 0.7, referrer: "codemv" })
+            });
+            lastStatus = upstream.status;
+            const bodyText = await upstream.text();
+            lastBody = bodyText.slice(0, 160);
+            let text = "";
+            try {
+              const data = JSON.parse(bodyText);
+              text = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : "";
+            } catch (e) { text = bodyText; }
+            if (upstream.ok && text && text.trim()) {
+              sendJson(res, 200, { ok: true, text: text.trim(), model: modelName });
+              return;
+            }
+          } catch (e) { lastBody = String((e && e.message) || e); }
         }
-        sendJson(res, 200, { ok: true, text: text });
+        if (prompt.length < 6000) {
+          for (const modelName of ["openai", "mistral"]) {
+            try {
+              const url = "https://text.pollinations.ai/" + encodeURIComponent(prompt) + "?model=" + modelName;
+              const upstream = await fetch(url, { headers: { "User-Agent": "codemv" } });
+              lastStatus = upstream.status;
+              const text = await upstream.text();
+              lastBody = text.slice(0, 160);
+              if (upstream.ok && text && text.trim() && !/^<!doctype|^<html/i.test(text.trim())) {
+                sendJson(res, 200, { ok: true, text: text.trim(), model: modelName + "-get" });
+                return;
+              }
+            } catch (e) { lastBody = String((e && e.message) || e); }
+          }
+        }
+        const rate = lastStatus === 402 || /limit|rate|busy/i.test(lastBody);
+        sendJson(res, 502, {
+          ok: false,
+          error: rate
+            ? "免费模型当前限流，请约 30 秒后再试；也可以在「设置 → AI 模型」填自己的 Key。"
+            : "免费模型没有返回内容（HTTP " + lastStatus + "），请重试或在「设置 → AI 模型」填自己的 Key。"
+        });
       } catch (err) {
         sendJson(res, 502, { ok: false, error: String((err && err.message) || err) });
       }
