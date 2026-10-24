@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self' 'unsafe-eval';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: blob: https:;
+               media-src 'self' data: blob:;
+               font-src 'self' data:;
+               connect-src 'self' https: http://127.0.0.1:* http://localhost:*;
+               frame-src 'self';
+               worker-src 'self' blob:;
+               object-src 'none';
+               base-uri 'self';
+               form-action 'self';" />
+
+  <title>Code MV · 逐字生成歌词 MV</title>
+
+  <!-- 基础 SEO -->
+  <meta name="description" content="Code MV：把一首歌变成逐字生成画面的 MV。AI 写画面、确定性渲染、浏览器内导出 MP4。" />
+  <meta name="keywords" content="歌词视频, MV 生成, 音乐可视化, AI 画面, Canvas, WebCodecs, 开源" />
+  <meta name="author" content="Code MV contributors" />
+  <meta name="theme-color" content="#08090c" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)" />
+  <meta name="color-scheme" content="dark light" />
+
+  <!-- 社交分享 -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Code MV" />
+  <meta property="og:title" content="Code MV · 逐字生成歌词 MV" />
+  <meta property="og:description" content="输入歌曲 + 歌词，画面逐字生成；确定性渲染，浏览器里直接导出 MP4。" />
+  <meta property="og:image" content="icons/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Code MV · 逐字生成歌词 MV" />
+  <meta name="twitter:description" content="AI 写画面，歌词逐字成画；确定性渲染，浏览器内导出 MP4。" />
+  <meta name="twitter:image" content="icons/og-image.png" />
+
+  <!-- PWA / 图标 -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/favicon.png" type="image/png" />
+  <link rel="icon" href="icons/favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png" />
+
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- SVG 图标库（保留，部分重画） -->
+  <svg class="icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 10v4h3l4 3V7L7 10H4z"/><path d="M15.5 9.2a4 4 0 010 5.6M17.8 6.9a7 7 0 010 10.2"/></symbol>
+  <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 10v4h3l4 3V7L7 10H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8.4 5.6c0-.9 1-1.4 1.7-.9l9.4 6.4c.6.4.6 1.4 0 1.8l-9.4 6.4c-.7.5-1.7 0-1.7-.9V5.6z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="7.2" y="5" width="3.4" height="14" rx="1.5"/><rect x="13.4" y="5" width="3.4" height="14" rx="1.5"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></symbol>
+    <symbol id="i-wand" viewBox="0 0 24 24"><path d="M4 20L14 10"/><path d="M14.5 3.5l1.4 2.8 2.8 1.4-2.8 1.4-1.4 2.8-1.4-2.8-2.8-1.4 2.8-1.4z"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l2.2 5.3L19.5 10l-5.3 2.2L12 17.5l-2.2-5.3L4.5 10l5.3-2.2z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4"/><path d="M5 19h14"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M6 15H5a1 1 0 01-1-1V5a1 1 0 011-1h9a1 1 0 011 1v1"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20l4.5-1L20 7.5 16.5 4 5 15.5 4 20z"/><path d="M14.5 6l3.5 3.5"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 12h2M10 12h10M4 17h10M18 17h2"/><circle cx="16" cy="7" r="2.1"/><circle cx="8" cy="12" r="2.1"/><circle cx="16" cy="17" r="2.1"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 019.5 4a8.5 8.5 0 1010.5 10.5z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
+    <symbol id="i-align" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 7V5h14v2M12 5v14M9 19h6"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5.5 5.5a9 9 0 000 13M18.5 5.5a9 9 0 010 13"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></symbol>
+    <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 7V5h16v2M12 5v14M8 19h8"/></symbol>
+    <symbol id="i-sun-thin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
+  </svg>
+
+  <div class="app-backdrop" id="appBackdrop" aria-hidden="true"></div>
+  <div class="app">
+    <!-- ======================= 顶栏 ======================= -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="brand-text">
+          <h1>Code MV</h1>
+          <p>逐字生成歌词 MV</p>
+        </div>
+      </div>
+
+      <div class="now-playing">
+        <span class="np-dot" aria-hidden="true"></span>
+        <span id="songTitle">未载入歌曲</span>
+      </div>
+
+      <div class="topbar-actions">
+        <button id="btnSidebar" class="ibtn" type="button" aria-label="显示/隐藏检查器" title="显示 / 隐藏检查器">
+          <svg class="ico" aria-hidden="true"><use href="#i-panel" /></svg>
+        </button>
+        <button id="btnImmersive" class="ibtn" type="button" aria-label="沉浸模式" title="沉浸模式（Esc 退出）">
+          <svg class="ico" aria-hidden="true"><use href="#i-expand" /></svg>
+        </button>
+        <button id="btnSettings" class="ibtn" type="button" aria-label="设置" title="设置（外观 / 画布与文字 / 更新与关于）">
+          <svg class="ico" aria-hidden="true"><use href="#i-settings" /></svg>
+        </button>
+        <button id="btnTheme" class="ibtn" type="button" aria-label="切换主题" title="切换深色 / 浅色">
+          <svg class="ico ico-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+          <svg class="ico ico-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+        </button>
+        <button id="btnExport" class="btn primary" type="button" disabled>
+          <svg class="ico" aria-hidden="true"><use href="#i-download" /></svg>导出视频
+        </button>
+      </div>
+    </header>
+
+    <!-- ======================= 工作区 ======================= -->
+    <main class="workspace layout">
+      <!-- 左侧图标栏 -->
+      <nav class="rail" role="tablist" aria-label="面板">
+        <button class="rail-tab tab is-active" data-tab="source" type="button" role="tab">
+          <span class="rail-ico"><svg class="ico" aria-hidden="true"><use href="#i-music" /></svg></span>
+          <span class="rail-label">素材</span>
+        </button>
+        <button class="rail-tab tab" data-tab="style" type="button" role="tab">
+          <span class="rail-ico"><svg class="ico" aria-hidden="true"><use href="#i-layers" /></svg></span>
+          <span class="rail-label">风格</span>
+        </button>
+        <button class="rail-tab tab" data-tab="ai" type="button" role="tab">
+          <span class="rail-ico"><svg class="ico" aria-hidden="true"><use href="#i-spark" /></svg></span>
+          <span class="rail-label">AI</span>
+        </button>
+        <span class="rail-sep" aria-hidden="true"></span>
+        <button id="btnLyric" class="rail-btn" type="button" title="歌词 / 画布样式">
+          <span class="rail-ico"><svg class="ico" aria-hidden="true"><use href="#i-text" /></svg></span>
+          <span class="rail-label">文字</span>
+        </button>
+        <div class="rail-spacer"></div>
+      </nav>
+
+      <!-- 中央舞台 -->
+      <section class="stage" id="stage">
+        <div class="canvas-shell">
+          <div class="canvas-wrap" id="canvasWrap">
+            <canvas id="stageCanvas" width="1600" height="900"></canvas>
+            <div class="placeholder" id="placeholder">
+              <div class="ph-inner">
+                <span class="ph-icon"></span>
+                <p>拖入歌曲与歌词，开始生成画面</p>
+                <small>也可以从「素材 → 网易云搜歌」找一首</small>
+              </div>
+            </div>
+            <div class="hud hud-top">
+              <span class="hud-chip" id="hudStyle">逐字生成</span>
+              <span class="hud-chip" id="hudRatio">16:9</span>
+            </div>
+            <div class="hud hud-bottom" id="hudBottom"></div>
+          </div>
+
+          <div class="transport">
+            <div class="tp-cover" id="tpCoverWrap" aria-hidden="true">
+              <img id="tpCover" alt="" />
+              <span class="tp-cover-note">♪</span>
+            </div>
+            <div class="tp-info">
+              <b id="tpTitle">—</b>
+              <span id="tpArtist">Code MV</span>
+            </div>
+            <button id="btnPlay" class="play-btn" type="button" disabled aria-label="播放">
+              <svg class="ico ico--fill" aria-hidden="true"><use href="#i-play" /></svg>
+            </button>
+            <div class="seek-wrap">
+              <div class="seek" id="seek" role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div class="seek-fill" id="seekFill"></div>
+                <div class="seek-thumb" id="seekThumb"></div>
+                <div class="seek-tooltip" id="seekTip">00:00</div>
+              </div>
+            </div>
+            <span class="time" id="timeLabel">00:00 / 00:00</span>
+            <div class="tp-volume" title="滚轮可调节音量">
+              <div class="volume-hud" id="volumeHud"></div>
+              <button id="btnMute" class="ibtn ibtn--sm" type="button" aria-label="静音" title="静音">
+                <svg class="ico" aria-hidden="true"><use href="#i-volume" /></svg>
+              </button>
+              <input id="volumeRange" type="range" min="0" max="1" step="0.01" value="1" aria-label="音量" />
+            </div>
+            <div class="tp-more" id="tpMore">
+              <button id="btnMore" class="ibtn ibtn--sm" type="button" aria-label="更多" title="更多">
+                <svg class="ico" aria-hidden="true"><use href="#i-more" /></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右侧检查器 -->
+      <aside class="inspector" id="inspector" aria-label="检查器">
+        <div class="inspector-head">
+          <span class="inspector-title" id="inspectorTitle">素材</span>
+          <button id="btnInspectorClose" class="ibtn" type="button" aria-label="收起检查器" title="收起">
+            <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
+        </div>
+
+        <div class="inspector-song" id="inspectorSong">
+          <div class="is-cover"><img id="inspCover" alt="" /><span class="is-note">♪</span></div>
+          <div class="is-meta">
+            <b id="inspTitle">—</b>
+            <span id="inspArtist">Code MV</span>
+          </div>
+        </div>
+
+        <div class="inspector-body">
+          <!-- ---------- 素材 ---------- -->
+          <div class="tab-panel is-active" data-panel="source">
+            <section class="block block--flat">
+              <h2>音频</h2>
+              <label class="drop" id="audioDrop">
+                <input type="file" id="audioInput" accept="audio/*" hidden />
+                <svg class="ico ico-lg" aria-hidden="true"><use href="#i-music" /></svg>
+                <strong id="audioLabel">拖入 / 点击选择歌曲</strong>
+                <small>mp3 · wav · flac · m4a · ogg</small>
+              </label>
+            </section>
+
+            <section class="block block--flat">
+              <h2>歌曲信息</h2>
+              <div class="meta-form">
+                <div class="field-row">
+                  <span>歌曲名</span>
+                  <input id="songName" class="input" type="text" placeholder="自动读取文件名" />
+                </div>
+                <div class="field-row">
+                  <span>歌手</span>
+                  <input id="songArtist" class="input" type="text" placeholder="可选" />
+                </div>
+                <div class="field-row">
+                  <span>导出名称</span>
+                  <input id="exportName" class="input" type="text" placeholder="默认等于歌曲名" />
+                </div>
+                <div class="row">
+                  <button id="btnSaveMeta" class="btn small" type="button">
+                    <svg class="ico" aria-hidden="true"><use href="#i-pencil" /></svg>编辑信息
+                  </button>
+                  <span class="tip" id="metaHint">未载入歌曲</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="block block--flat">
+              <h2>歌词</h2>
+              <label class="drop drop--small" id="lrcDrop">
+                <input type="file" id="lrcInput" accept=".lrc,.txt,text/plain" hidden />
+                <svg class="ico" aria-hidden="true"><use href="#i-upload" /></svg>
+                <strong id="lrcLabel">拖入 .lrc（可选）</strong>
+                <small>没有也行，可手动粘贴</small>
+              </label>
+              <textarea id="lrcText" spellcheck="false" placeholder="直接粘贴 LRC：&#10;[00:12.30] 第一句歌词"></textarea>
+              <div class="row">
+                <button id="btnApplyLrc" class="btn small" type="button">应用歌词</button>
+                <span class="tip" id="lrcHint">未加载</span>
+              </div>
+            </section>
+
+            <details class="block collapsible">
+              <summary><h2>强制对齐（词级时间）</h2><span class="summary-hint" id="alignHint">未对齐</span></summary>
+              <p class="tip">LRC 只有整行时间。用音频能量切分，或导入 Whisper 词级 JSON。</p>
+              <div class="align-row">
+                <button id="btnAlignEnergy" class="btn small" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-align" /></svg>按音频能量对齐
+                </button>
+                <button id="btnAlignImport" class="btn small ghost" type="button">导入 Whisper JSON</button>
+              </div>
+              <textarea id="alignText" spellcheck="false" placeholder='{"words":[{"word":"夜色","start":2.0,"end":2.45}]}'></textarea>
+            </details>
+
+            <details class="block collapsible">
+              <summary><h2>网易云搜歌</h2><span class="summary-hint">可选 · 有风险</span></summary>
+              <div class="ns-status" id="nsStatusRow">
+                <span class="ns-dot" id="nsDot" aria-hidden="true"></span>
+                <span id="nsStatus">检测本地代理…</span>
+                <button id="btnNsDetect" class="btn tiny ghost" type="button">重新检测</button>
+              </div>
+              <div class="row">
+                <input id="nsQuery" class="input" type="text" placeholder="歌名 / 歌手" />
+                <button id="btnNsQr" class="btn small" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-radio" /></svg>扫码登录
+                </button>
+                <button id="btnNsSearch" class="btn small" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-search" /></svg>搜索
+                </button>
+              </div>
+              <ul class="result-list" id="nsResults"></ul>
+              <details class="adv">
+                <summary>高级：代理地址 / Cookie / 风险说明</summary>
+                <label class="field">
+                  <span>本地代理地址</span>
+                  <input id="nsBase" class="input" type="text" placeholder="http://127.0.0.1:8899" />
+                </label>
+                <label class="field">
+                  <span>登录 Cookie（可选）</span>
+                  <input id="nsCookie" class="input" type="password" placeholder="MUSIC_U=..." />
+                </label>
+                <label class="field field--row">
+                  <input id="nsRemember" type="checkbox" />
+                  <span>记住 Cookie（仅本机）</span>
+                </label>
+                <p class="tip">
+                  ⚠️ 非官方接口，可能违反服务条款、有账号风险，仅建议个人学习。
+                  本地代理由 <code>server.js</code> 提供：双击 <code>start.bat</code> 即可启动。
+                </p>
+              </details>
+            </details>
+          </div>
+
+          <!-- ---------- 风格 ---------- -->
+          <div class="tab-panel" data-panel="style">
+            <section class="block block--flat">
+              <h2>画面风格 <span class="chip" id="styleCount">—</span></h2>
+              <input id="styleSearch" class="input" type="text" placeholder="搜索：水墨 / 霓虹 / 极简 / 胶片…" />
+              <div class="style-list" id="styleList"></div>
+            </section>
+          </div>
+
+          <!-- ---------- AI ---------- -->
+          <div class="tab-panel" data-panel="ai">
+            <section class="block block--flat">
+              <h2>AI 写画面</h2>
+              <p class="tip">让模型写 <code>drawScene(ctx, f)</code>，遵循 motion-kit 规则；Worker 沙箱校验，失败自动回退。</p>
+              <div class="row">
+                <button id="btnCodePrompt" class="btn small" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-copy" /></svg>复制提示词
+                </button>
+                <button id="btnCodeSample" class="btn small ghost" type="button">载入示例代码</button>
+              </div>
+              <textarea id="codeText" spellcheck="false" placeholder="粘贴 AI 返回的 drawScene 代码…"></textarea>
+              <div class="row">
+                <button id="btnCodeRun" class="btn small primary" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-code" /></svg>运行代码
+                </button>
+                <button id="btnCodeStop" class="btn small ghost" type="button">回退</button>
+              </div>
+              <p class="tip" id="codeHint">未启用</p>
+            </section>
+
+            <details class="block collapsible">
+              <summary><h2>模型设置</h2><span class="summary-hint">可选</span></summary>
+              <label class="field">
+                <span>API 地址（OpenAI 兼容）</span>
+                <input id="llmBase" class="input" type="text" placeholder="https://api.deepseek.com/v1" />
+              </label>
+              <label class="field">
+                <span>API Key</span>
+                <input id="llmKey" class="input" type="password" placeholder="sk-..." />
+              </label>
+              <label class="field">
+                <span>模型名</span>
+                <input id="llmModel" class="input" type="text" placeholder="deepseek-chat" />
+              </label>
+              <div class="row">
+                <button id="btnLlmSave" class="btn small" type="button">
+                  <svg class="ico" aria-hidden="true"><use href="#i-check" /></svg>保存
+                </button>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <div class="inspector-foot">
+          <button id="btnPrimary" class="btn primary wide" type="button">
+            <svg class="ico" aria-hidden="true"><use href="#i-spark" /></svg>
+            <span id="primaryLabel">生成预览</span>
+          </button>
+        </div>
+      </aside>
+    </main>
+
+    <!-- ======================= 状态栏 ======================= -->
+    <!-- 顶部状态条：操作详情 / 确定性渲染 / 就绪 -->
+    <div class="top-meta" aria-label="状态信息">
+      <span class="tm-left">
+        <span class="tm-label">操作详情</span>
+        <span class="sb-style" id="styleName">—</span>
+      </span>
+      <span class="sb-info tm-center" id="renderInfo">确定性渲染 · 逐字驱动</span>
+      <span class="badge tm-right" id="statusBadge">就绪</span>
+    </div>
+  </div>
+
+
+
+  <!-- ======================= 设置（外观 / 画布与文字 / 更新与关于） ======================= -->
+  <div class="tp-menu" id="tpMenu" hidden>
+    <button type="button" data-more="meta">编辑歌曲信息</button>
+    <button type="button" data-more="export">导出视频</button>
+    <button type="button" data-more="settings">打开设置</button>
+  </div>
+
+  <div class="modal-backdrop" id="settingsBackdrop" hidden></div>
+  <div class="modal modal--settings" id="settingsModal" role="dialog" aria-modal="true" aria-label="设置" hidden>
+    <div class="modal-head">
+      <h2>设置</h2>
+      <button id="btnSettingsClose" class="ibtn" type="button" aria-label="关闭">
+        <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </div>
+    <div class="settings-body">
+      <nav class="settings-nav" aria-label="设置分类">
+        <button type="button" class="is-active" data-panel="appearance">外观</button>
+        <button type="button" data-panel="canvas">画布与文字</button>
+        <button type="button" data-panel="about">更新与关于</button>
+      </nav>
+      <div class="settings-panels">
+        <section class="settings-panel" data-panel="appearance">
+          <h3>预览窗样式</h3>
+          <div class="chip-row set-preview">
+            <button type="button" class="chip-btn" data-preview="classic">经典（v1.13.7）</button>
+            <button type="button" class="chip-btn" data-preview="folia">Folia 新版</button>
+          </div>
+
+          <h3>主题</h3>
+          <div class="chip-row set-theme">
+            <button type="button" class="chip-btn" data-mode="dark">深色</button>
+            <button type="button" class="chip-btn" data-mode="light">浅色</button>
+            <button type="button" class="chip-btn" data-mode="system">跟随系统</button>
+          </div>
+          <h3>强调色</h3>
+          <div class="accent-row" id="setAccents"></div>
+          <label class="settings-line"><span>自定义颜色</span><input type="color" id="setAccentCustom" /></label>
+          <label class="settings-line"><span>自动隐藏播放条（3 秒）</span><input type="checkbox" id="setAutoHide" /></label>
+          <h3>界面字体</h3>
+          <select id="setUiFont" class="input">
+            <option value="system">系统默认</option>
+            <option value="sans">无衬线（Segoe UI）</option>
+            <option value="serif">衬线（Georgia / 宋体）</option>
+            <option value="mono">等宽（Consolas）</option>
+          </select>
+        </section>
+
+        <section class="settings-panel" data-panel="canvas" hidden>
+          <h3>歌词字体</h3>
+          <select id="setLyricFont" class="input"><option value="">跟随界面字体</option></select>
+          <h3>歌词字号 <b id="setLyricSizeVal">4.6%</b></h3>
+          <input type="range" id="setLyricSize" min="2" max="10" step="0.1" value="4.6" />
+          <h3>字幕条样式 <small>需先选择「底部字幕条」</small></h3>
+          <label class="settings-line"><span>字体</span>
+            <select id="setBarFont" class="input" style="width:auto">
+              <option value="sans">黑体 / 思源黑</option>
+              <option value="serif">宋体 / 衬线</option>
+              <option value="rounded">圆体</option>
+              <option value="mono">等宽</option>
+            </select>
+          </label>
+          <label class="settings-line"><span>圆角</span><b id="setBarRadiusVal">32%</b></label>
+          <input type="range" id="setBarRadius" min="0" max="50" step="1" value="32" />
+          <label class="settings-line"><span>距底部</span><b id="setBarPosVal">5.5%</b></label>
+          <input type="range" id="setBarPos" min="0" max="15" step="0.5" value="5.5" />
+          <label class="settings-line"><span>最大宽度</span><b id="setBarWidthVal">92%</b></label>
+          <input type="range" id="setBarWidth" min="60" max="96" step="1" value="92" />
+          <label class="settings-line"><span>背景透明度</span><b id="setBarOpacityVal">42%</b></label>
+          <input type="range" id="setBarOpacity" min="0" max="60" step="1" value="42" />
+
+          <h3>字幕位置</h3>
+          <div class="chip-row set-subtitle">
+            <button type="button" class="chip-btn" data-sub="inline">画面内</button>
+            <button type="button" class="chip-btn" data-sub="bar">底部字幕条（Folia）</button>
+          </div>
+          <h3>动效强度</h3>
+          <div class="chip-row set-motion">
+            <button type="button" class="chip-btn" data-motion="calm">平静</button>
+            <button type="button" class="chip-btn" data-motion="normal">标准</button>
+            <button type="button" class="chip-btn" data-motion="lively">活跃</button>
+            <button type="button" class="chip-btn" data-motion="off">关闭</button>
+          </div>
+          <h3>默认画幅比例</h3>
+          <div class="chip-row set-ratio">
+            <button type="button" class="chip-btn" data-ratio="16:9">16:9</button>
+            <button type="button" class="chip-btn" data-ratio="9:16">9:16</button>
+            <button type="button" class="chip-btn" data-ratio="1:1">1:1</button>
+            <button type="button" class="chip-btn" data-ratio="21:9">21:9</button>
+          </div>
+          <p class="tip">画幅比例会同步应用到画布、导出与 Folia 预览。</p>
+        </section>
+
+        <section class="settings-panel" data-panel="about" hidden>
+          <div class="about-brand">Code MV <small id="aboutVersion">—</small></div>
+          <div class="about-row"><span>作者</span><b id="aboutAuthor">AlanLumier · 1957784559@qq.com</b></div>
+          <div class="about-row"><span>仓库</span><a id="aboutGithub" href="https://github.com/AlanLumier/code-mv" target="_blank" rel="noreferrer">github.com/AlanLumier/code-mv</a></div>
+          <label class="settings-line"><span>启动时自动检查并更新</span><input type="checkbox" id="setAutoUpdate" /></label>
+          <label class="settings-line"><span>更新完成后自动重启</span><input type="checkbox" id="setAutoRestart" /></label>
+          <div class="update-panel">
+            <h3>更新</h3>
+            <p class="update-status" id="updateStatus">尚未检查更新</p>
+            <div id="updateCommits" class="update-commits"></div>
+            <div class="row">
+              <button id="btnCheckUpdate" class="btn small" type="button">检查更新</button>
+              <button id="btnApplyUpdate" class="btn small primary" type="button" disabled>立即更新</button>
+              <button id="btnReloadApp" class="btn small ghost" type="button">重新加载</button>
+            </div>
+            <p class="tip">更新会执行 <code>git pull --ff-only origin main</code>；仅当本目录是 git 仓库时可用。</p>
+          </div>
+          <p class="tip">开源协议 AGPL-3.0 · 第三方资源与致谢见 NOTICE.md</p>
+        </section>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button id="btnSettingsReset" class="btn ghost" type="button">恢复默认</button>
+      <button id="btnSettingsDone" class="btn primary" type="button">完成</button>
+    </div>
+  </div>
+
+
+  <!-- ======================= 自动更新结果弹窗 ======================= -->
+  <div class="modal-backdrop" id="updateBackdrop" hidden></div>
+  <div class="modal modal--update" id="updateModal" role="dialog" aria-modal="true" aria-label="发现新版本" hidden>
+    <div class="modal-head">
+      <h2 id="updateTitle">已自动更新</h2>
+      <button id="btnUpdateClose" class="ibtn" type="button" aria-label="关闭">
+        <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </div>
+    <div class="modal-body update-body">
+      <div class="update-flex">
+        <div class="update-ver">
+          <span class="update-label">新版本</span>
+          <b id="updateNewVersion">—</b>
+        </div>
+        <div class="update-ver">
+          <span class="update-label">更新编号</span>
+          <code id="updateNewHash">—</code>
+        </div>
+      </div>
+      <h3 class="update-h">更新内容</h3>
+      <div id="updateCommitsList" class="update-commits"></div>
+      <p class="tip" id="updateNote"></p>
+    </div>
+    <div class="modal-foot">
+      <button id="btnUpdateLater" class="btn ghost" type="button">稍后</button>
+      <button id="btnUpdateApplyNow" class="btn primary" type="button">重启并应用</button>
+    </div>
+  </div>
+
+  <!-- Folia 上游构建产物（如果 vendor/folia-build 存在则可用） -->
+  <div class="modal modal--folia" id="foliaModal" role="dialog" aria-hidden="true" hidden>
+    <div class="modal-head">
+      <h2>Folia 上游预览（实验）
+        <select id="foliaMode" class="input" style="width:auto;display:inline-block;margin-left:10px;font-size:12px;padding:2px 6px;">
+          <option value="fume">浮名 fume</option>
+          <option value="lumiere">流光 lumiere</option>
+          <option value="classic">经典 classic</option>
+          <option value="cadenza">心象 cadenza</option>
+          <option value="partita">云阶 partita</option>
+          <option value="cappella">群唱 cappella</option>
+          <option value="tilt">倾诉 tilt</option>
+          <option value="diorama">镜台 diorama</option>
+          <option value="pendolo">时计 pendolo</option>
+          <option value="monet">莫奈 monet</option>
+          <option value="sonnet">十四行 sonnet</option>
+          <option value="tempera">蛋彩 tempera</option>
+          <option value="claddagh">克拉达 claddagh</option>
+          <option value="still">静帧 still</option>
+        </select>
+      </h2>
+      <button id="btnFoliaClose" class="ibtn" type="button" aria-label="关闭">
+        <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </div>
+    <div class="modal-body folia-body">
+      <iframe id="foliaFrame" title="Folia" loading="lazy"></iframe>
+      <p class="tip" id="foliaHint">需要先把 Folia 构建产物放进 vendor/folia-build/（tools/build-folia.cjs）。</p>
+    </div>
+  </div>
+
+  <!-- ======================= 弹窗 ======================= -->
+
+  <div class="modal modal--qr" id="qrModal" role="dialog" aria-modal="true" aria-hidden="true" hidden>
+    <div class="modal-head">
+      <h2>扫码登录网易云</h2>
+      <button id="btnQrClose" class="ibtn" type="button" aria-label="关闭">
+        <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </div>
+    <div class="modal-body qr-body">
+      <div class="qr-frame">
+        <img id="qrImage" alt="网易云登录二维码" width="260" height="260" />
+      </div>
+      <p class="qr-status" id="qrStatus">正在生成二维码…</p>
+      <p class="tip">用「网易云音乐」App 扫码并确认登录，成功后 Cookie 会自动填到下方输入框（仅保存在本机）。</p>
+      <div class="row">
+        <button id="btnQrCopy" class="btn small ghost" type="button">复制登录链接</button>
+        <button id="btnQrRefresh" class="btn small ghost" type="button">刷新二维码</button>
+      </div>
+      <p class="tip" id="qrFallback" hidden></p>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden></div>
+
+  <div class="modal" id="metaModal" role="dialog" aria-modal="true" aria-hidden="true" hidden>
+    <div class="modal-head">
+      <h2>编辑歌曲信息</h2>
+      <button id="btnMetaClose" class="ibtn" type="button" aria-label="关闭">
+        <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <label class="field"><span>歌曲名</span><input id="modalSongName" class="input" type="text" placeholder="自动读取文件名" /></label>
+      <label class="field"><span>歌手</span><input id="modalSongArtist" class="input" type="text" placeholder="可选" /></label>
+      <label class="field"><span>作者 / 署名</span><input id="modalAuthor" class="input" type="text" placeholder="导出时可选择显示在片尾" /></label>
+      <label class="field"><span>导出文件名</span><input id="modalExportName" class="input" type="text" placeholder="默认：歌曲名 - 歌手" /></label>
+      <p class="tip">没有导入歌词时，画布会持续显示「歌曲名 - 歌手」。</p>
+    </div>
+    <div class="modal-foot">
+      <button id="btnMetaCancel" class="btn ghost" type="button">取消</button>
+      <button id="btnMetaSave" class="btn primary" type="button">保存</button>
+    </div>
+  </div>
+
+  <div class="modal modal--export" id="exportModal" role="dialog" aria-modal="true" aria-hidden="true" hidden>
+    <div class="modal-head">
+      <h2>导出视频</h2>
+      <button id="btnExportClose" class="ibtn" type="button" aria-label="关闭">
+        <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="export-summary">
+        <div class="export-row"><span>歌曲</span><b id="exportSummarySong">—</b></div>
+        <div class="export-row"><span>歌手</span><b id="exportSummaryArtist">—</b></div>
+        <div class="export-row"><span>风格</span><b id="exportSummaryStyle">—</b></div>
+        <div class="export-row"><span>画幅 / 时长</span><b id="exportSummaryRatio">—</b></div>
+        <div class="export-row"><span>编码方式</span><b id="exportSummaryCodec">检测中…</b></div>
+        <div class="export-row"><span>文件名称</span><b id="exportSummaryFile">—</b></div>
+      </div>
+      <div class="field">
+        <span>导出方式</span>
+        <div class="chip-row" id="exportModes">
+          <button type="button" class="chip-btn is-active" data-mode="realtime">实时录制 · 保证有声</button>
+          <button type="button" class="chip-btn" data-mode="offline">离线编码 · 更快</button>
+        </div>
+      </div>
+      <p class="tip" id="exportModeHint">实时录制耗时约等于歌曲时长，但音轨稳定；离线编码更快，但部分浏览器的 AAC 音轨可能无声。</p>
+
+      <div class="export-progress" id="exportProgress" hidden>
+        <div class="export-progress-track">
+          <div class="export-progress-fill" id="exportProgressFill"></div>
+        </div>
+        <p class="export-progress-text" id="exportProgressText">准备导出…</p>
+      </div>
+
+      <label class="field field--row">
+        <input id="exportCredit" type="checkbox" />
+        <span>片尾显示作者署名（最后 3.5 秒）</span>
+      </label>
+      <label class="field"><span>作者署名</span><input id="exportAuthor" class="input" type="text" placeholder="你的名字 / 工作室" /></label>
+      <p class="tip">导出按「歌曲信息」里的歌曲名 / 歌手 / 导出文件名命名；署名只在片尾出现。</p>
+    </div>
+    <div class="modal-foot">
+      <button id="btnExportCancel" class="btn ghost" type="button">取消</button>
+      <button id="btnExportDone" class="btn primary" type="button" hidden>关闭</button>
+      <button id="btnExportStart" class="btn primary" type="button">
+        <svg class="ico" aria-hidden="true"><use href="#i-download" /></svg>开始导出
+      </button>
+    </div>
+  </div>
+
+  <!-- ======================= 歌词 / 画布样式抽屉 ======================= -->
+  <div class="drawer-mask" id="drawerMask" hidden></div>
+  <aside class="drawer" id="lyricDrawer" aria-hidden="true" aria-label="歌词与画布样式">
+    <div class="drawer-head">
+      <h2>歌词 / 画布</h2>
+      <button id="btnLyricClose" class="ibtn" type="button" aria-label="关闭">
+        <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <!-- 卡片 1：歌词 -->
+      <details class="drawer-card" open>
+        <summary><h3>歌词</h3><span class="drawer-card-hint">排版 / 动效 / 字体</span></summary>
+
+        <div class="field">
+          <span>预设</span>
+          <div class="chip-row" id="lyricPresets"></div>
+        </div>
+
+        <label class="field field--row">
+          <input id="lyricVisible" type="checkbox" checked />
+          <span>显示歌词</span>
+        </label>
+
+        <div class="field">
+          <span>画幅比例</span>
+          <div class="chip-row" id="ratioChips">
+            <button type="button" class="chip-btn is-active" data-ratio="16:9">16:9</button>
+            <button type="button" class="chip-btn" data-ratio="9:16">9:16</button>
+            <button type="button" class="chip-btn" data-ratio="1:1">1:1</button>
+            <button type="button" class="chip-btn" data-ratio="21:9">21:9</button>
+          </div>
+        </div>
+
+      <label class="field">
+        <span>垂直位置 <b id="lyricYVal">50%</b></span>
+        <input id="lyricY" type="range" min="0" max="100" step="1" value="50" />
+      </label>
+      <label class="field">
+        <span>字号 <b id="lyricSizeVal">4.6%</b></span>
+        <input id="lyricSize" type="range" min="1.6" max="12" step="0.1" value="4.6" />
+      </label>
+      <label class="field">
+        <span>最大宽度 <b id="lyricMaxWVal">80%</b></span>
+        <input id="lyricMaxWidth" type="range" min="0.4" max="1" step="0.01" value="0.8" />
+      </label>
+      <label class="field">
+        <span>字距 <b id="lyricTrackingVal">0.06em</b></span>
+        <input id="lyricTracking" type="range" min="-0.05" max="0.5" step="0.01" value="0.06" />
+      </label>
+      <label class="field">
+        <span>行距 <b id="lyricLHVal">1.34</b></span>
+        <input id="lyricLH" type="range" min="1" max="2.4" step="0.02" value="1.34" />
+      </label>
+      <label class="field">
+        <span>透明度 <b id="lyricOpacityVal">100%</b></span>
+        <input id="lyricOpacity" type="range" min="0.2" max="1" step="0.01" value="1" />
+      </label>
+      <label class="field">
+        <span>发光 <b id="lyricGlowVal">55%</b></span>
+        <input id="lyricGlow" type="range" min="0" max="1" step="0.01" value="0.55" />
+      </label>
+      <label class="field">
+        <span>描边 <b id="lyricOutlineVal">0%</b></span>
+        <input id="lyricOutline" type="range" min="0" max="0.2" step="0.005" value="0" />
+      </label>
+
+      <label class="field">
+        <span>对齐</span>
+        <select id="lyricAlign" class="input">
+          <option value="center">居中</option>
+          <option value="left">左对齐</option>
+          <option value="right">右对齐</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>字体</span>
+        <select id="lyricFont" class="input"></select>
+      </label>
+      <label class="field">
+        <span>动效</span>
+        <select id="lyricAnim" class="input"></select>
+      </label>
+
+      <div class="row">
+        <button id="btnLyricReset" class="btn small ghost" type="button">恢复默认</button>
+      </div>
+      </details>
+
+      <!-- 卡片 2：歌名卡（没有歌词时） -->
+      <details class="drawer-card">
+        <summary><h3>歌名卡</h3><span class="drawer-card-hint">没有歌词时显示</span></summary>
+
+        <label class="field field--row">
+          <input id="titleVisible" type="checkbox" checked />
+          <span>显示歌名 / 歌手</span>
+        </label>
+        <label class="field field--row">
+          <input id="titleShowArtist" type="checkbox" checked />
+          <span>同时显示歌手</span>
+        </label>
+
+        <label class="field">
+          <span>分隔符</span>
+          <select id="titleSep" class="input">
+            <option value=" - ">歌曲名 - 歌手</option>
+            <option value=" · ">歌曲名 · 歌手</option>
+            <option value=" / ">歌曲名 / 歌手</option>
+            <option value=" | ">歌曲名 | 歌手</option>
+            <option value="  ">歌曲名  歌手（空格）</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>垂直位置 <b id="titleYVal">50%</b></span>
+          <input id="titleY" type="range" min="0" max="100" step="1" value="50" />
+        </label>
+        <label class="field">
+          <span>字号 <b id="titleSizeVal">5.2%</b></span>
+          <input id="titleSize" type="range" min="2" max="14" step="0.1" value="5.2" />
+        </label>
+        <label class="field">
+          <span>透明度 <b id="titleOpacityVal">100%</b></span>
+          <input id="titleOpacity" type="range" min="0.2" max="1" step="0.01" value="1" />
+        </label>
+        <label class="field">
+          <span>发光 <b id="titleGlowVal">35%</b></span>
+          <input id="titleGlow" type="range" min="0" max="1" step="0.01" value="0.35" />
+        </label>
+
+        <p class="tip">没有导入歌词时，画布会一直显示这里设置的标题；导入歌词后自动隐藏。</p>
+      </details>
+    </div>
+  </aside>
+
+  <script src="js/utils.js"></script>
+  <script src="js/lyric-style.js"></script>
+  <script src="js/styles-library.js"></script>
+  <script src="js/style-render.js"></script>
+  <script src="js/lrc.js"></script>
+  <script src="js/script.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/scenes.js"></script>
+  <script src="js/story.js"></script>
+  <script src="js/alan-engine.js"></script>
+  <script src="js/align.js"></script>
+  <script src="js/live.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/export.js"></script>
+  <script src="vendor/mp4-muxer/mp4-muxer.min.js"></script>
+  <script src="js/encode.js"></script>
+  <script src="js/netease.js"></script>
+  <script src="js/llm.js"></script>
+  <script src="js/folia-bridge.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/mv-auto.js"></script>
+  <script src="js/scene-core.js"></script>
+  <script src="js/scene-code.js"></script>
+  <!-- Folia 还原可选模块（AGPL-3.0，见 vendor/folia-fidelity/NOTICE.md） -->
+  <script src="vendor/folia-fidelity/render.js"></script>
+  <script src="js/app.js"></script>
+  <!-- PWA：http(s) 下注册 Service Worker，file:// 自动跳过 -->
+  <script src="js/sw-register.js"></script>
+</body>
+</html>

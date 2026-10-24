@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://your-name.github.io/alanlumiere/sitemap.xml

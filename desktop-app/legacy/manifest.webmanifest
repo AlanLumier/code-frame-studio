@@ -1,0 +1,19 @@
+{
+  "name": "Code MV · 逐字生成歌词 MV",
+  "short_name": "Code MV",
+  "description": "把一首歌变成逐字生成画面的 MV：AI 写画面、确定性渲染、可导出 MP4",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#080c20",
+  "theme_color": "#0a1030",
+  "categories": ["music", "video", "graphics"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

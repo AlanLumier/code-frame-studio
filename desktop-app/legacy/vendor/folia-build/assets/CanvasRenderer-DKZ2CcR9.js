@@ -1,0 +1,1 @@
+import{CanvasRenderer as e}from"./lib-15taglYD.js";export{e as CanvasRenderer};

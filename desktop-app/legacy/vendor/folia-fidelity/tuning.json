@@ -1,0 +1,29 @@
+{
+  "fume": {
+    "_raw": "{ hidePrintSymbols: false, disableGeometricBackground: true, backgroundObjectOpacity: 0.5, textHoldRatio: 1, cameraTrackingMode: 'smooth', cameraSpeed: 1, glowIntensity: 1, heroScale: 1, }"
+  },
+  "classic": {
+    "_raw": "{ enableWordRotation: true, breathingFloatMultiplier: 1, useLegacyLayout: false, wordSpacing: 0.7, }"
+  },
+  "cadenza": {
+    "_raw": "{ fontScale: 1.12, widthRatio: 0.72, motionAmount: 1, glowIntensity: 1, beamIntensity: 0, }"
+  },
+  "partita": {
+    "_raw": "{ showGuideLines: true, useSemanticLayout: true, staggerMin: 20, staggerMax: 100, }"
+  },
+  "cappella": {
+    "_raw": "{ showEmoMessages: true, emojiPackSource: 'builtin', avatarSource: 'cover', }"
+  },
+  "tilt": {
+    "_raw": "{ splitProbability: 0.75, tiltStyleProbability: 0.35, colorScheme: 'default', }"
+  },
+  "diorama": {
+    "_raw": "{ cameraSpeed: 1, motionAmount: 1, audioReactivity: 1, geometryVisibility: DEFAULT_DIORAMA_GEOMETRY_VISIBILITY, particleDensity: 576, particleScale: 1, particleGlowEnabled: true, particleGlowIntensity: 0.65, showParticles: true, backgroundParticleCircumference: 28, backgroundParticleRadial: 2, glowEnabled: true, glowIntensity: 1, soulEnabled: true, soulIntensity: 1, soulActiveEnabled: false, gradientEnabled: false, gradientIntensity: 1, keywordColoringEnabled: true, }"
+  },
+  "pendolo": {
+    "_raw": "{ arcRadius: 0.42, arcAngleDeg: 100, wheelCenterX: 0.0, wheelCenterY: 0.50, tickSnappiness: 2.0, activeScale: 1.25, showGearDecor: 'subtle', showCenterGradient: true, showCoverOnWatchFace: false, enableLineGlow: false, }"
+  },
+  "lumiere": {
+    "_raw": "{ lightIntensity: 1, audioResponse: 1, fogDensity: 1, darkField: 0.75, moteAmount: 1, bloom: 1, textBloom: 1, unlitOpacity: 0.22, windowNeighbors: 2, decay: 1, echo: 1, fogOctaves: 5, lineArt: true, frontBokeh: true, trails: true, hideTrails: false, seamlessTransitions: true, overlayFrame: true, textOnly: false, keywordColors: true, themeIcons: true, themeColorMix: 0.3, renderQuality: 'full', }"
+  }
+}

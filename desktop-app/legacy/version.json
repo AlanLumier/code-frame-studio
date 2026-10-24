@@ -1,0 +1,10 @@
+{
+  "version": "1.14.5",
+  "app": "Code MV",
+  "author": {
+    "name": "AlanLumier",
+    "email": "1957784559@qq.com"
+  },
+  "repo": "https://github.com/AlanLumier/code-mv",
+  "license": "AGPL-3.0"
+}

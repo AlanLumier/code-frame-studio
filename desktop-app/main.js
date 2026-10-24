@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 const path = require("node:path");
 const http = require("node:http");
+const net = require("node:net");
 const fs = require("node:fs");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
@@ -113,7 +114,41 @@ function startStaticServer() {
   });
 }
 
-function createWindow(port) {
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.on("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const port = probe.address().port;
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+/** 原封不动加载旧 CodeMV：复制过来的 legacy/ 就是旧项目本身，
+    由旧项目自带的零依赖 server.js 同端口提供页面与网易云代理。 */
+async function startLegacyServer() {
+  const port = await findFreePort();
+  process.env.PORT = String(port);
+  process.env.CODEMV_ROOT = path.join(__dirname, "legacy");
+  require("./legacy/server.js");
+  for (let i = 0; i < 60; i += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+      if (response.ok) {
+        log(`legacy server ready on ${port}`);
+        return port;
+      }
+    } catch {
+      /* wait */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("legacy server did not become ready");
+}
+
+function createWindow(port, urlPath = "/") {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -130,7 +165,7 @@ function createWindow(port) {
       sandbox: false,
     },
   });
-  mainWindow.loadURL(`http://127.0.0.1:${port}/renderer/index.html`);
+  mainWindow.loadURL(`http://127.0.0.1:${port}${urlPath}`);
   log("window created");
   mainWindow.on("closed", () => log("window closed"));
   mainWindow.webContents.on("render-process-gone", (_event, details) => log(`renderer gone ${JSON.stringify(details)}`));
@@ -165,14 +200,22 @@ if (!gotLock) {
     log("ready");
     Menu.setApplicationMenu(null);
     let port = 0;
+    let loadPath = "/";
     try {
-      port = await startStaticServer();
+      port = await startLegacyServer();
+      loadPath = "/";
     } catch (error) {
-      console.error("static server failed", error);
+      log(`legacy failed: ${error.message}`);
+      try {
+        port = await startStaticServer();
+        loadPath = "/renderer/index.html";
+      } catch (fallbackError) {
+        log(`fallback failed: ${fallbackError.message}`);
+      }
     }
-    createWindow(port);
+    createWindow(port, loadPath);
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow(port);
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(port, loadPath);
     });
   });
 }
