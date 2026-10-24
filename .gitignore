@@ -52,3 +52,6 @@ tools/ffmpeg/
 
 # 临时测试脚本
 js/.*.mjs
+
+# Edge 高性能模式缓存
+desktop-app/.edge-profile/
