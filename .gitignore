@@ -55,3 +55,6 @@ js/.*.mjs
 
 # Edge 高性能模式缓存
 desktop-app/.edge-profile/
+
+# 新版 Edge 配置
+desktop-app/.edge-profile-v2/

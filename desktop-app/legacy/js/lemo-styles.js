@@ -1165,6 +1165,17 @@
     if (def && def.category === "lemo") return NS.styleLibrary.PALETTES[def.palette] || NS.styleLibrary.PALETTES.night;
     return originalPalette(id);
   };
+  // 旧仓库大量风格彼此雷同：只保留 10 个精选，加上 Lemo 59 个，共 70 个。
+  var featured = NS.styleLibrary.FEATURED || [];
+  NS.styleLibrary.list = NS.styleLibrary.list.filter(function (s) {
+    return s.category === "lemo" || featured.indexOf(s.id) >= 0;
+  });
+  NS.styleLibrary.CATEGORIES.length = 0;
+  NS.styleLibrary.CATEGORIES.push(
+    { id: "lemo", name: "Lemo 风格", desc: "59 种电影风格，和 AI 提示词打通" },
+    { id: "scene", name: "逐字生成", desc: "按歌词内容实时渲染（内置引擎）" },
+    { id: "featured", name: "精选主题", desc: "10 套最有辨识度的旧主题" }
+  );
   setTimeout(function () {
     var group = document.querySelector('.style-group[data-cat="lemo"]');
     if (!group) return;
