@@ -1176,6 +1176,21 @@
     { id: "scene", name: "逐字生成", desc: "按歌词内容实时渲染（内置引擎）" },
     { id: "featured", name: "精选主题", desc: "10 套最有辨识度的旧主题" }
   );
+  // 在「素材」面板顶部放一个入口，避免用户以为没有 Lemo 风格。
+  setTimeout(function () {
+    var source = document.querySelector('[data-panel="source"]');
+    if (!source || document.getElementById("lemoNotice")) return;
+    var notice = document.createElement("div");
+    notice.id = "lemoNotice";
+    notice.className = "block block--flat";
+    notice.style.cssText = "cursor:pointer;border-color:rgba(255,179,92,.45);margin-bottom:10px";
+    notice.innerHTML = "<h2>Lemo 风格已接入 <span class=\"chip\">59</span></h2><p class=\"tip\">点这里打开「风格」面板，第一组就是 Lemo 风格。</p>";
+    notice.addEventListener("click", function () {
+      var tab = document.querySelector('.rail-tab[data-tab="style"]');
+      if (tab) tab.click();
+    });
+    source.insertBefore(notice, source.firstChild);
+  }, 1100);
   setTimeout(function () {
     var group = document.querySelector('.style-group[data-cat="lemo"]');
     if (!group) return;

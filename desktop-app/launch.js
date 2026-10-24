@@ -42,7 +42,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     spawn("cmd", ["/c", "start", "", `http://127.0.0.1:${PORT}/`], { stdio: "ignore", windowsHide: true, detached: true }).unref();
     return;
   }
-  const profile = path.join(ROOT, ".edge-profile-v2");
+  const profile = path.join(ROOT, ".edge-profile-v3");
   fs.mkdirSync(profile, { recursive: true });
   const view = spawn(EDGE, [
     `--app=http://127.0.0.1:${PORT}/`,
