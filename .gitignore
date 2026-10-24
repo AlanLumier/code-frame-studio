@@ -38,3 +38,8 @@ js/node_modules/
 
 # 新桌面应用依赖
 desktop-app/node_modules/
+
+# lemo-opuscar 独立仓库与本地运行依赖
+lemo-opuscar/
+.playwright-browsers/
+.uv-cache/
