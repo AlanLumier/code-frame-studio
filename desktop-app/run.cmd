@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set "ELECTRON_RUN_AS_NODE="
 cd /d "%~dp0"
 if not exist "node_modules\electron\dist\electron.exe" (
   echo [ERROR] Electron runtime not found. Run install.cmd first.

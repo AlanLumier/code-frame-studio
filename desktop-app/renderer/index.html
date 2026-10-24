@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; frame-src 'self'; worker-src 'self' blob:; connect-src 'self' blob:;">
-<title>codemv · 喜欢 · 阿肆</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self' blob:;">
+<title>codemv · AI 逐帧音乐视频</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body data-theme="dark">
@@ -17,12 +17,11 @@
       </div>
     </div>
     <div class="song">
-      <b id="songTitle">喜欢</b>
-      <span id="songMeta">阿肆 · 04:10 · 本地示例</span>
+      <b id="songTitle">未导入音乐</b>
+      <span id="songMeta">导入音乐和歌词后开始</span>
     </div>
     <div class="top-actions">
-      <button class="btn" id="btnAudio">导入音乐</button>
-      <button class="btn" id="btnLyrics">导入歌词</button>
+      <button class="btn" id="btnExport">导出</button>
       <button class="btn primary" id="btnSettings">设置</button>
     </div>
   </header>
@@ -48,32 +47,39 @@
     </nav>
 
     <section class="stage-wrap">
-      <div class="stage-frame" id="stageWrap">
-        <iframe id="stageFrame" title="Folia 歌词舞台" src="/vendor/folia-build/codemv-stage.html" allow="autoplay"></iframe>
-        <div class="stage-loading" id="stageLoading">
-          <div class="spinner"></div>
-          <span>正在唤醒本地歌词舞台…</span>
+      <div class="stage-frame">
+        <canvas id="stageCanvas"></canvas>
+        <div class="welcome" id="welcome">
+          <div class="welcome-logo">
+            <svg viewBox="0 0 24 24"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/></svg>
+          </div>
+          <h1>从一首歌，生成一支 MV</h1>
+          <p>在右侧「素材」里导入音乐和 LRC 歌词，或搜索网易云歌词。</p>
+          <div class="welcome-tags"><span>AI 逐帧画面</span><span>本地歌词舞台</span><span>59 种风格</span></div>
         </div>
-        <div class="stage-badge"><i></i> Folia 视觉库 · 本地独立运行</div>
-        <div class="stage-hint" id="stageHint">空格播放 / 暂停 · 点击右侧歌词跳转</div>
+        <div class="stage-badge"><i></i> 本地渲染 · 无上传</div>
       </div>
     </section>
 
     <aside class="panel" id="panel">
       <section class="panel-page active" data-page="material">
-        <div class="panel-head"><span>素材</span><span class="badge" id="srcBadge">本地示例</span></div>
+        <div class="panel-head"><span>素材</span><span class="badge" id="srcBadge">未导入</span></div>
         <div class="panel-body">
           <div class="song-card">
             <div class="cover"><span>♪</span></div>
             <div class="song-info">
-              <b id="cardTitle">喜欢</b>
-              <span id="cardArtist">阿肆</span>
-              <small id="cardMeta">04:10 · 本地示例</small>
+              <b id="cardTitle">未导入音乐</b>
+              <span id="cardArtist">支持 MP3 / WAV / FLAC + LRC</span>
+              <small id="cardMeta">导入后自动对齐歌词</small>
             </div>
           </div>
           <div class="row-actions">
-            <button class="btn" id="btnAudio2">导入本地音频</button>
-            <button class="btn" id="btnLyrics2">导入本地 LRC</button>
+            <button class="btn primary" id="btnAudio">导入音乐</button>
+            <button class="btn" id="btnLyrics">导入歌词</button>
+          </div>
+          <div class="row-actions">
+            <button class="btn" id="btnExportAudio" disabled>导出音乐</button>
+            <button class="btn" id="btnExportLyrics" disabled>导出歌词</button>
           </div>
           <div class="section-title">网易云歌词</div>
           <div class="search-row">
@@ -81,10 +87,10 @@
             <button class="btn primary" id="nsSearch">搜索</button>
           </div>
           <div class="ns-results" id="nsResults">
-            <p class="muted">搜索后点击结果，会把歌词加载到本地舞台（不需要登录 Folia）。</p>
+            <p class="muted">搜索后点击结果，只加载歌词，不下载音频。</p>
           </div>
           <div class="section-title">当前歌词</div>
-          <p class="muted" id="lyricSummary">正在载入示例歌词…</p>
+          <p class="muted" id="lyricSummary">还没有导入歌词。</p>
         </div>
       </section>
 
@@ -96,7 +102,7 @@
           </div>
           <div class="chips" id="styleChips"></div>
           <div class="style-grid" id="styleGrid"></div>
-          <div class="style-foot" id="styleFoot">选一个风格，作为下一支 MV 的视觉底子。</div>
+          <div class="style-foot" id="styleFoot">选一个风格，点击即应用；下次生成 MV 时作为视觉底子。</div>
         </div>
       </section>
 
@@ -108,37 +114,44 @@
       </section>
 
       <section class="panel-page" data-page="settings">
-        <div class="panel-head"><span>设置</span><span class="badge" id="versionBadge">v0.7.0</span></div>
+        <div class="panel-head"><span>设置</span><span class="badge" id="versionBadge">v0.8.0</span></div>
         <div class="panel-body settings-body">
-          <div class="section-title">外观</div>
-          <label class="field"><span>主题</span>
-            <select id="setTheme"><option value="dark">深色</option><option value="light">浅色</option></select>
-          </label>
-          <label class="field"><span>强调色</span><input id="setAccent" type="color" value="#e8553a"></label>
-          <div class="section-title">Folia 歌词舞台</div>
-          <label class="field"><span>歌词模式</span>
-            <select id="setMode">
-              <option value="fume">浮名 fume</option>
-              <option value="lumiere">流光 lumiere</option>
-              <option value="classic">经典 classic</option>
-              <option value="cadenza">心象 cadenza</option>
-              <option value="partita">云阶 partita</option>
-              <option value="cappella">群唱 cappella</option>
-              <option value="tilt">倾诉 tilt</option>
-              <option value="diorama">镜台 diorama</option>
-              <option value="pendolo">时计 pendolo</option>
-              <option value="monet">莫奈 monet</option>
-              <option value="sonnet">十四行 sonnet</option>
-              <option value="tempera">蛋彩 tempera</option>
-              <option value="claddagh">克拉达 claddagh</option>
-              <option value="still">静帧 still</option>
-            </select>
-          </label>
-          <p class="muted">视觉库已完整拷贝到应用内，本地运行，不会提示登录 Folia。</p>
-          <div class="section-title">更新</div>
-          <button class="btn" id="btnUpdate">检查更新</button>
-          <p class="muted" id="updateStatus">当前版本 v0.7.0</p>
-          <button class="link-btn" id="linkRepo">打开 GitHub 仓库</button>
+          <div class="settings-group">
+            <div class="section-title">外观</div>
+            <label class="field"><span>主题</span>
+              <select id="setTheme"><option value="dark">深色</option><option value="light">浅色</option></select>
+            </label>
+            <label class="field"><span>强调色</span><input id="setAccent" type="color" value="#e8553a"></label>
+          </div>
+          <div class="settings-group">
+            <div class="section-title">歌词舞台</div>
+            <label class="field"><span>字号</span><input id="setSize" type="range" min="60" max="140" value="100"></label>
+            <label class="field"><span>位置</span>
+              <select id="setPos"><option value="center">居中</option><option value="bottom">偏下</option><option value="top">偏上</option></select>
+            </label>
+            <label class="field"><span>动效</span>
+              <select id="setMode">
+                <option value="fume">浮名 fume</option>
+                <option value="monet">莫奈 monet</option>
+                <option value="classic">经典 classic</option>
+                <option value="still">静帧 still</option>
+              </select>
+            </label>
+            <p class="muted">本地 Canvas 渲染，不依赖 Folia 账号。</p>
+          </div>
+          <div class="settings-group">
+            <div class="section-title">更新</div>
+            <div class="field-row">
+              <span class="muted" id="updateStatus">当前版本 v0.8.0</span>
+              <button class="btn" id="btnUpdate">检查更新</button>
+            </div>
+            <button class="btn primary hidden" id="btnDownload">打开下载页</button>
+          </div>
+          <div class="settings-group">
+            <div class="section-title">项目</div>
+            <button class="btn" id="btnClear">清空当前歌曲与歌词</button>
+            <button class="link-btn" id="linkRepo">打开 GitHub 仓库</button>
+          </div>
         </div>
       </section>
     </aside>
@@ -146,19 +159,19 @@
 
   <footer class="transport">
     <button class="play" id="btnPlay" aria-label="播放">
-      <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
     </button>
     <span class="time" id="timeNow">00:00</span>
     <input class="seek" id="seek" type="range" min="0" max="1000" value="0">
-    <span class="time" id="timeTotal">04:10</span>
-    <span class="status" id="status">Folia · fume</span>
+    <span class="time" id="timeTotal">00:00</span>
+    <span class="status" id="status">等待导入素材</span>
   </footer>
 </div>
 
 <div class="toast" id="toast"></div>
 <input id="fileAudio" type="file" accept="audio/*" hidden>
 <input id="fileLyrics" type="file" accept=".lrc,.txt,text/plain" hidden>
-<audio id="audio" src="/assets/xihuan.mp3" preload="metadata"></audio>
+<audio id="audio" preload="metadata"></audio>
 <script src="app.js"></script>
 </body>
 </html>

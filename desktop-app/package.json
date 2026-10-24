@@ -1,6 +1,6 @@
 {
   "name": "codemv-desktop",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "codemv desktop app - AI writes code, renders frame by frame",
   "main": "main.js",

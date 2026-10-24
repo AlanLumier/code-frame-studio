@@ -1,23 +1,42 @@
-/* codemv 0.7 — 旧版 codemV 布局 + 独立搬入的 Folia 视觉库 + 网易云歌词 */
+/* codemv 0.8 — 旧 codemV 布局 + 本地 Canvas 歌词舞台 + 网易云歌词 + 59 风格库 */
 
 const $ = (id) => document.getElementById(id);
 const audio = $("audio");
-const stageFrame = $("stageFrame");
+const canvas = $("stageCanvas");
+const ctx = canvas.getContext("2d");
 
-const DEFAULT_SETTINGS = { theme: "dark", accent: "#e8553a", mode: "fume" };
+const DEFAULT_SETTINGS = {
+  theme: "dark",
+  accent: "#e8553a",
+  size: 100,
+  pos: "bottom",
+  mode: "fume",
+  style: "",
+};
+const STYLE_COLORS = {
+  "剪辑与纪实": "#e8553a", "实证影像": "#4aa3a2", "手绘与绘画": "#e0a458",
+  "东方传统": "#b4463c", "印刷与版画": "#d05a7a", "图形与排版": "#5b8def",
+  "信息与发布": "#3fa7d6", "卡通与动画": "#f0b429", "游戏": "#7ac74f",
+  "电影与时代": "#a78bfa", "材质与 3D": "#ff8a65",
+};
+
 const state = {
   lines: [],
   duration: 0,
-  title: "喜欢",
-  artist: "阿肆",
+  title: "",
+  artist: "",
+  audioFile: null,
+  audioPath: "",
+  lrcText: "",
   tab: "material",
   styles: [],
   category: "全部",
   styleQuery: "",
-  selectedStyle: "",
-  mode: "fume",
+  selectedStyle: null,
   settings: loadSettings(),
-  stageReady: false,
+  activeIndex: -1,
+  stageW: 960,
+  stageH: 540,
 };
 
 /* ------------------------------------------------------------------ utils */
@@ -41,7 +60,17 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
+}
+function semver(v) {
+  return String(v || "").replace(/^v/i, "").split(".").map((n) => parseInt(n, 10) || 0);
+}
+function newer(a, b) {
+  const x = semver(a), y = semver(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------ LRC */
@@ -61,10 +90,12 @@ function parseLRC(text) {
     }
   }
   out.sort((a, b) => a.start - b.start);
-  for (let i = 0; i < out.length; i += 1) {
-    out[i].end = i + 1 < out.length ? out[i + 1].start : state.duration || 250;
-  }
+  for (let i = 0; i < out.length; i += 1) out[i].end = i + 1 < out.length ? out[i + 1].start : state.duration || 250;
   return out;
+}
+
+function buildLRC() {
+  return state.lines.map((line) => `[${String(Math.floor(line.start / 60)).padStart(2, "0")}:${String(Math.floor(line.start % 60)).padStart(2, "0")}.${String(Math.round((line.start % 1) * 100)).padStart(2, "0")}]${line.text}`).join("\n");
 }
 
 function setLyrics(lines, meta = {}) {
@@ -72,9 +103,14 @@ function setLyrics(lines, meta = {}) {
   if (meta.title) state.title = meta.title;
   if (meta.artist) state.artist = meta.artist;
   if (meta.duration) state.duration = meta.duration;
+  for (let i = 0; i < state.lines.length; i += 1) {
+    state.lines[i].end = i + 1 < state.lines.length ? state.lines[i + 1].start : state.duration || 250;
+  }
   renderLyrics();
   updateMeta();
-  pushStage();
+  $("btnExportLyrics").disabled = !state.lines.length;
+  $("welcome").classList.toggle("hide", !!(state.lines.length || state.audioFile));
+  draw(true);
 }
 
 function renderLyrics() {
@@ -83,7 +119,6 @@ function renderLyrics() {
   state.lines.forEach((line) => {
     const item = document.createElement("div");
     item.className = "lyric-item";
-    item.dataset.time = String(line.start);
     const time = document.createElement("span");
     time.className = "t";
     time.textContent = fmt(line.start);
@@ -96,18 +131,43 @@ function renderLyrics() {
   });
   $("lineCount").textContent = `${state.lines.length} 句`;
   $("lyricSummary").textContent = state.lines.length
-    ? `已加载 ${state.lines.length} 句 · 点击「歌词」标签查看并跳转。`
-    : "还没有歌词，导入 LRC 或搜索网易云。";
+    ? `已加载 ${state.lines.length} 句，点击「歌词」标签查看。`
+    : "还没有导入歌词。";
 }
 
 function updateMeta() {
-  $("songTitle").textContent = state.title || "未命名";
-  $("cardTitle").textContent = state.title || "未命名";
-  $("cardArtist").textContent = state.artist || "未知歌手";
-  const meta = `${fmt(state.duration)} · ${state.lines.length} 句歌词`;
-  $("songMeta").textContent = `${state.artist || "未知歌手"} · ${meta}`;
+  const title = state.title || "未导入音乐";
+  $("songTitle").textContent = title;
+  $("cardTitle").textContent = title;
+  $("cardArtist").textContent = state.artist || "支持 MP3 / WAV / FLAC + LRC";
+  const meta = state.audioFile
+    ? `${fmt(state.duration)} · ${state.lines.length} 句歌词`
+    : state.lines.length
+      ? `${state.lines.length} 句歌词 · 未导入音频`
+      : "导入后自动对齐歌词";
+  $("songMeta").textContent = state.audioFile ? `${state.artist || "本地音频"} · ${meta}` : meta;
   $("cardMeta").textContent = meta;
   $("timeTotal").textContent = fmt(state.duration);
+}
+
+/* ------------------------------------------------------------------ stage */
+function resizeCanvas() {
+  const frame = canvas.parentElement;
+  const rect = frame.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  state.stageW = Math.max(320, rect.width);
+  state.stageH = Math.max(180, rect.height);
+  canvas.width = Math.round(state.stageW * dpr);
+  canvas.height = Math.round(state.stageH * dpr);
+  canvas.style.width = `${state.stageW}px`;
+  canvas.style.height = `${state.stageH}px`;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function palette() {
+  const accent = state.settings.accent || "#e8553a";
+  const base = state.selectedStyle ? STYLE_COLORS[state.selectedStyle.cat] || accent : accent;
+  return { accent, base };
 }
 
 function activeLine(t) {
@@ -119,145 +179,179 @@ function activeLine(t) {
   return index;
 }
 
-let activeIndex = -1;
-function highlightLyrics(t) {
+function draw(force = false) {
+  const { accent, base } = palette();
+  const w = state.stageW;
+  const h = state.stageH;
+  const t = audio.currentTime || 0;
   const index = activeLine(t);
-  if (index === activeIndex) return;
-  activeIndex = index;
-  const items = $("lyricList").children;
-  for (let i = 0; i < items.length; i += 1) items[i].classList.toggle("active", i === index);
-  if (index >= 0 && state.tab === "lyrics" && items[index]) items[index].scrollIntoView({ block: "center", behavior: "smooth" });
-}
-
-/* ------------------------------------------------------------------ Folia stage */
-function pushStage() {
-  if (!state.stageReady || !stageFrame.contentWindow) return;
-  const payload = {
-    type: "codemv:state",
-    t: audio.currentTime || 0,
-    duration: state.duration || audio.duration || 0,
-    playing: !audio.paused,
-    lines: state.lines.map((l) => ({ text: l.text, time: l.start, translation: l.translation || "" })),
-    title: state.title,
-    artist: state.artist,
-    coverUrl: "",
-  };
-  stageFrame.contentWindow.postMessage(payload, "*");
-}
-
-function setStageMode(mode) {
-  state.mode = mode;
-  if (state.stageReady && stageFrame.contentWindow) {
-    stageFrame.contentWindow.postMessage({ type: "codemv:mode", mode }, "*");
-    pushStage();
+  if (index !== state.activeIndex || force) {
+    state.activeIndex = index;
+    const items = $("lyricList").children;
+    for (let i = 0; i < items.length; i += 1) items[i].classList.toggle("active", i === index);
+    if (index >= 0 && state.tab === "lyrics" && items[index]) items[index].scrollIntoView({ block: "center", behavior: "smooth" });
   }
-  $("status").textContent = `Folia · ${mode}`;
+
+  // background
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, "#070b14");
+  bg.addColorStop(0.55, "#0d1524");
+  bg.addColorStop(1, "#050811");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  const anim = state.settings.mode === "still" ? 0 : 1;
+  const time = performance.now() / 1000;
+  for (let i = 0; i < 3; i += 1) {
+    const x = w * (0.22 + i * 0.28) + Math.sin(time * 0.22 + i) * 40 * anim;
+    const y = h * (0.4 + 0.16 * Math.sin(time * 0.18 + i * 2)) * anim;
+    const radius = Math.max(w, h) * (0.34 + i * 0.08);
+    const glow = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    glow.addColorStop(0, `${base}${i === 1 ? "2e" : "18"}`);
+    glow.addColorStop(1, "transparent");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  if (!state.lines.length) return;
+
+  const line = state.lines[Math.max(0, index)];
+  if (!line) return;
+  const scale = state.settings.size / 100;
+  const fontSize = Math.round(Math.min(w, h) * 0.062 * scale);
+  const posFactor = state.settings.pos === "top" ? 0.32 : state.settings.pos === "center" ? 0.5 : 0.72;
+  const cy = h * posFactor;
+
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `700 ${Math.round(fontSize * 0.42)}px "Microsoft YaHei", "Microsoft YaHei UI", sans-serif`;
+  ctx.fillStyle = "rgba(255,255,255,0.32)";
+  const prev = index > 0 ? state.lines[index - 1].text : "";
+  const next = index + 1 < state.lines.length ? state.lines[index + 1].text : "";
+  if (prev) ctx.fillText(prev, w / 2, cy - fontSize * 1.35);
+  if (next) ctx.fillText(next, w / 2, cy + fontSize * 1.35);
+
+  ctx.font = `700 ${fontSize}px "Microsoft YaHei", "Microsoft YaHei UI", sans-serif`;
+  const maxWidth = w * 0.82;
+  const text = line.text;
+  const textWidth = Math.min(ctx.measureText(text).width, maxWidth);
+  if (state.settings.mode === "fume" || state.settings.mode === "monet") {
+    ctx.shadowColor = base;
+    ctx.shadowBlur = state.settings.mode === "monet" ? 34 : 22;
+  }
+  ctx.fillStyle = "rgba(255,255,255,0.94)";
+  ctx.fillText(text, w / 2, cy);
+  // progress highlight
+  const duration = Math.max(0.4, line.end - line.start);
+  const progress = Math.max(0, Math.min(1, (t - line.start) / duration));
+  if (progress > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(w / 2 - textWidth / 2, cy - fontSize, textWidth * progress, fontSize * 2);
+    ctx.clip();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = accent;
+    ctx.fillText(text, w / 2, cy);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // title / artist
+  ctx.save();
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.font = `600 ${Math.round(fontSize * 0.28)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText(`${state.title || ""}${state.artist ? " · " + state.artist : ""}`, w * 0.045, h * 0.06);
+  ctx.restore();
 }
 
-stageFrame.addEventListener("load", () => {
-  state.stageReady = true;
-  setTimeout(() => {
-    stageFrame.classList.add("ready");
-    $("stageLoading").classList.add("hide");
-    setStageMode(state.mode);
-    pushStage();
-  }, 500);
-});
-
-/* ------------------------------------------------------------------ audio */
-function applySettings() {
-  document.body.dataset.theme = state.settings.theme;
-  document.documentElement.style.setProperty("--accent", state.settings.accent);
-  $("setTheme").value = state.settings.theme;
-  $("setAccent").value = state.settings.accent;
-  $("setMode").value = state.settings.mode;
-  setStageMode(state.settings.mode);
+let lastFrame = 0;
+function loop(ts) {
+  requestAnimationFrame(loop);
+  if (document.hidden) return;
+  const interval = audio.paused ? 120 : 33;
+  if (ts - lastFrame < interval) return;
+  lastFrame = ts;
+  draw();
 }
 
+/* ------------------------------------------------------------------ transport */
 function setPlayIcon(playing) {
   $("playIcon").innerHTML = playing
     ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z" />'
     : '<path d="M8 5v14l11-7z" />';
 }
 function togglePlay() {
+  if (!state.audioFile) return toast("先导入音乐");
   if (audio.paused) audio.play().catch(() => toast("无法播放音频"));
   else audio.pause();
 }
 function seekTo(t) {
+  if (!state.audioFile) return;
   audio.currentTime = Math.max(0, Math.min(t, state.duration || audio.duration || 0));
-  $("seek").value = String(Math.round((audio.currentTime / (state.duration || 1)) * 1000));
-  $("timeNow").textContent = fmt(audio.currentTime);
-  pushStage();
-  highlightLyrics(audio.currentTime);
+  draw(true);
 }
-
 audio.addEventListener("loadedmetadata", () => {
   state.duration = audio.duration || state.duration;
   $("timeTotal").textContent = fmt(state.duration);
   updateMeta();
-  pushStage();
+  draw(true);
 });
 audio.addEventListener("timeupdate", () => {
   const t = audio.currentTime;
   $("timeNow").textContent = fmt(t);
   $("seek").value = String(Math.round((t / (state.duration || 1)) * 1000));
-  highlightLyrics(t);
 });
 audio.addEventListener("play", () => {
   setPlayIcon(true);
-  $("stageHint").classList.add("hide");
-  pushStage();
+  $("status").textContent = "正在播放 · 本地歌词舞台";
 });
 audio.addEventListener("pause", () => {
   setPlayIcon(false);
-  pushStage();
+  $("status").textContent = state.lines.length ? "已暂停" : "等待导入素材";
 });
 audio.addEventListener("ended", () => setPlayIcon(false));
-
-$("seek").addEventListener("input", (event) => {
-  const t = (Number(event.target.value) / 1000) * (state.duration || audio.duration || 0);
-  seekTo(t);
-});
+$("seek").addEventListener("input", (event) => seekTo((Number(event.target.value) / 1000) * (state.duration || 1)));
 $("btnPlay").addEventListener("click", togglePlay);
 document.addEventListener("keydown", (event) => {
   if (event.target.matches("input, select, textarea")) return;
-  if (event.code === "Space") {
-    event.preventDefault();
-    togglePlay();
-  }
+  if (event.code === "Space") { event.preventDefault(); togglePlay(); }
   if (event.code === "ArrowRight") seekTo(audio.currentTime + 5);
   if (event.code === "ArrowLeft") seekTo(audio.currentTime - 5);
 });
-
-setInterval(() => {
-  if (state.stageReady) pushStage();
-}, 150);
 
 /* ------------------------------------------------------------------ tabs */
 function setTab(tab) {
   state.tab = tab;
   document.querySelectorAll(".rail-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tab));
   document.querySelectorAll(".panel-page").forEach((page) => page.classList.toggle("active", page.dataset.page === tab));
-  if (tab === "lyrics") highlightLyrics(audio.currentTime);
+  if (tab === "lyrics" && state.activeIndex >= 0) {
+    const items = $("lyricList").children;
+    if (items[state.activeIndex]) items[state.activeIndex].scrollIntoView({ block: "center" });
+  }
 }
 document.querySelectorAll(".rail-btn").forEach((btn) => btn.addEventListener("click", () => setTab(btn.dataset.tab)));
 $("btnSettings").addEventListener("click", () => setTab("settings"));
 
 /* ------------------------------------------------------------------ files */
 $("btnAudio").addEventListener("click", () => $("fileAudio").click());
-$("btnAudio2").addEventListener("click", () => $("fileAudio").click());
 $("btnLyrics").addEventListener("click", () => $("fileLyrics").click());
-$("btnLyrics2").addEventListener("click", () => $("fileLyrics").click());
-
 $("fileAudio").addEventListener("change", (event) => {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
-  const url = URL.createObjectURL(file);
-  audio.src = url;
-  audio.load();
+  state.audioFile = file;
+  state.audioPath = (window.codemv && window.codemv.getPathForFile && window.codemv.getPathForFile(file)) || file.path || "";
   state.title = file.name.replace(/\.[^.]+$/, "");
   state.artist = "本地音频";
+  audio.src = URL.createObjectURL(file);
+  audio.load();
+  $("btnExportAudio").disabled = false;
+  $("srcBadge").textContent = "本地音频";
+  $("welcome").classList.add("hide");
   updateMeta();
+  setTab("lyrics");
   toast("音频已导入");
   event.target.value = "";
 });
@@ -265,13 +359,70 @@ $("fileLyrics").addEventListener("change", async (event) => {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
   const text = await file.text();
+  state.lrcText = text;
   const lines = parseLRC(text);
   if (!lines.length) toast("没有解析到歌词，请确认是 LRC 文件");
   else {
     setLyrics(lines);
+    $("srcBadge").textContent = "本地 LRC";
+    setTab("lyrics");
     toast(`歌词已导入（${lines.length} 句）`);
   }
   event.target.value = "";
+});
+$("btnClear").addEventListener("click", () => {
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+  state.audioFile = null;
+  state.audioPath = "";
+  state.lines = [];
+  state.lrcText = "";
+  state.title = "";
+  state.artist = "";
+  state.duration = 0;
+  state.activeIndex = -1;
+  $("welcome").classList.remove("hide");
+  $("btnExportAudio").disabled = true;
+  $("btnExportLyrics").disabled = true;
+  $("timeNow").textContent = "00:00";
+  $("timeTotal").textContent = "00:00";
+  $("seek").value = "0";
+  renderLyrics();
+  updateMeta();
+  draw(true);
+  toast("已清空");
+});
+
+/* ------------------------------------------------------------------ export */
+async function exportAudio() {
+  if (!state.audioFile) return toast("先导入音乐");
+  if (!window.codemv || !window.codemv.saveFile) return toast("导出需要在桌面应用中使用");
+  if (!state.audioPath) return toast("这个音频没有本地路径，暂时无法导出");
+  const ext = (state.audioPath.split(".").pop() || "mp3").toLowerCase();
+  const file = await window.codemv.saveFile({
+    defaultName: `${state.title || "codemv"}.${ext}`,
+    filters: [{ name: "音频", extensions: [ext] }],
+    sourcePath: state.audioPath,
+  });
+  if (file) toast("音乐已导出");
+}
+async function exportLyrics() {
+  if (!state.lines.length) return toast("还没有歌词");
+  if (!window.codemv || !window.codemv.saveFile) return toast("导出需要在桌面应用中使用");
+  const file = await window.codemv.saveFile({
+    defaultName: `${state.title || "codemv"}.lrc`,
+    filters: [{ name: "LRC 歌词", extensions: ["lrc"] }],
+    text: state.lrcText || buildLRC(),
+  });
+  if (file) toast("歌词已导出");
+}
+$("btnExportAudio").addEventListener("click", exportAudio);
+$("btnExportLyrics").addEventListener("click", exportLyrics);
+$("btnExport").addEventListener("click", () => {
+  if (state.audioFile) exportAudio();
+  else if (state.lines.length) exportLyrics();
+  else toast("先导入音乐或歌词");
 });
 
 /* ------------------------------------------------------------------ NetEase */
@@ -305,13 +456,13 @@ async function searchNetease() {
   }
 }
 async function loadNeteaseLyric(song) {
-  if (!window.codemv || !window.codemv.neteaseLyric) return;
   try {
     const data = await window.codemv.neteaseLyric(song.id);
     const lines = parseLRC(data.lrc);
     if (!lines.length) throw new Error("歌词解析为空");
+    state.lrcText = data.lrc;
     setLyrics(lines, { title: song.name, artist: song.artists, duration: song.duration || state.duration });
-    $("srcBadge").textContent = "网易云";
+    $("srcBadge").textContent = "网易云歌词";
     setTab("lyrics");
     toast(`已载入《${song.name}》歌词`);
   } catch (error) {
@@ -319,19 +470,20 @@ async function loadNeteaseLyric(song) {
   }
 }
 $("nsSearch").addEventListener("click", searchNetease);
-$("nsInput").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") searchNetease();
-});
+$("nsInput").addEventListener("keydown", (event) => { if (event.key === "Enter") searchNetease(); });
 
 /* ------------------------------------------------------------------ styles */
 async function loadStyles() {
   try {
     const response = await fetch("/style-library/catalog.json");
-    const data = await response.json();
-    state.styles = data;
-    $("styleCount").textContent = `${data.length} 种`;
+    state.styles = await response.json();
+    $("styleCount").textContent = `${state.styles.length} 种`;
     renderChips();
     renderStyles();
+    if (state.settings.style) {
+      const selected = state.styles.find((s) => s.slug === state.settings.style);
+      if (selected) applyStyle(selected, false);
+    }
   } catch (error) {
     $("styleGrid").innerHTML = `<p class="muted">风格库加载失败：${error.message}</p>`;
   }
@@ -344,11 +496,7 @@ function renderChips() {
     const chip = document.createElement("button");
     chip.className = `chip${cat === state.category ? " active" : ""}`;
     chip.textContent = cat;
-    chip.addEventListener("click", () => {
-      state.category = cat;
-      renderChips();
-      renderStyles();
-    });
+    chip.addEventListener("click", () => { state.category = cat; renderChips(); renderStyles(); });
     box.appendChild(chip);
   });
 }
@@ -363,60 +511,71 @@ function renderStyles() {
   grid.innerHTML = "";
   list.forEach((style) => {
     const card = document.createElement("div");
-    card.className = `style-card${style.slug === state.selectedStyle ? " selected" : ""}`;
+    card.className = `style-card${state.selectedStyle && style.slug === state.selectedStyle.slug ? " selected" : ""}`;
     const img = document.createElement("img");
     img.loading = "lazy";
     img.src = `/style-library/img/${style.slug}_0.jpg`;
     img.alt = style.cn;
-    img.onerror = () => { img.style.background = "#111"; };
     const body = document.createElement("div");
     body.className = "sc-body";
     body.innerHTML = "<b></b><small></small>";
     body.querySelector("b").textContent = style.cn;
     body.querySelector("small").textContent = `${style.en} · ${style.cat}`;
     card.append(img, body);
-    card.addEventListener("click", () => {
-      state.selectedStyle = style.slug;
-      renderStyles();
-      $("styleFoot").textContent = `已选「${style.cn}」· ${style.en} — 适合：${style.uses || style.cat}`;
-      toast(`已选择风格：${style.cn}`);
-    });
+    card.addEventListener("click", () => applyStyle(style));
     grid.appendChild(card);
   });
   if (!list.length) grid.innerHTML = '<p class="muted">没有匹配的风格。</p>';
 }
-$("styleSearch").addEventListener("input", (event) => {
-  state.styleQuery = event.target.value;
+function applyStyle(style, notify = true) {
+  state.selectedStyle = style;
+  state.settings.style = style.slug;
+  state.settings.accent = STYLE_COLORS[style.cat] || state.settings.accent;
+  saveSettings();
+  applySettings();
   renderStyles();
-});
+  $("styleFoot").textContent = `已应用「${style.cn}」· ${style.en} — ${style.uses || style.cat}`;
+  draw(true);
+  if (notify) toast(`已应用风格：${style.cn}`);
+}
+$("styleSearch").addEventListener("input", (event) => { state.styleQuery = event.target.value; renderStyles(); });
 
 /* ------------------------------------------------------------------ settings */
+function applySettings() {
+  document.body.dataset.theme = state.settings.theme;
+  document.documentElement.style.setProperty("--accent", state.settings.accent);
+  $("setTheme").value = state.settings.theme;
+  $("setAccent").value = state.settings.accent;
+  $("setSize").value = String(state.settings.size);
+  $("setPos").value = state.settings.pos;
+  $("setMode").value = state.settings.mode;
+  draw(true);
+}
 function bindSettings() {
-  $("setTheme").addEventListener("change", (event) => {
-    state.settings.theme = event.target.value;
-    saveSettings();
-    applySettings();
-  });
-  $("setAccent").addEventListener("input", (event) => {
-    state.settings.accent = event.target.value;
-    saveSettings();
-    applySettings();
-  });
-  $("setMode").addEventListener("change", (event) => {
-    state.settings.mode = event.target.value;
-    saveSettings();
-    setStageMode(event.target.value);
-  });
+  $("setTheme").addEventListener("change", (event) => { state.settings.theme = event.target.value; saveSettings(); applySettings(); });
+  $("setAccent").addEventListener("input", (event) => { state.settings.accent = event.target.value; saveSettings(); applySettings(); });
+  $("setSize").addEventListener("input", (event) => { state.settings.size = Number(event.target.value); saveSettings(); draw(true); });
+  $("setPos").addEventListener("change", (event) => { state.settings.pos = event.target.value; saveSettings(); draw(true); });
+  $("setMode").addEventListener("change", (event) => { state.settings.mode = event.target.value; saveSettings(); draw(true); });
+
   $("btnUpdate").addEventListener("click", async () => {
     const status = $("updateStatus");
+    const download = $("btnDownload");
+    download.classList.add("hidden");
     status.textContent = "正在检查更新…";
     try {
       const info = await window.codemv.appInfo();
       $("versionBadge").textContent = `v${info.version}`;
       const result = await window.codemv.checkUpdate();
-      status.textContent = result.latest && result.latest !== info.version
-        ? `发现新版本 v${result.latest}（当前 v${info.version}）`
-        : `已是最新版本（v${info.version}）`;
+      if (result.latest && newer(result.latest, info.version)) {
+        status.textContent = `发现新版本 v${result.latest}（当前 v${info.version}）`;
+        download.classList.remove("hidden");
+        download.onclick = () => window.codemv.openExternal(result.url);
+      } else if (result.latest) {
+        status.textContent = `已是最新（当前 v${info.version}，线上 v${result.latest}）`;
+      } else {
+        status.textContent = `已是最新（v${info.version}）`;
+      }
     } catch (error) {
       status.textContent = `检查失败：${error.message}`;
     }
@@ -430,6 +589,8 @@ function bindSettings() {
 async function init() {
   applySettings();
   bindSettings();
+  resizeCanvas();
+  window.addEventListener("resize", () => { resizeCanvas(); draw(true); });
   try {
     if (window.codemv) {
       const info = await window.codemv.appInfo();
@@ -439,16 +600,8 @@ async function init() {
   } catch (error) {
     console.warn(error);
   }
-  try {
-    const lrc = await (await fetch("/assets/xihuan.lrc")).text();
-    const lines = parseLRC(lrc);
-    setLyrics(lines);
-  } catch (error) {
-    console.warn("demo lyrics failed", error);
-  }
   loadStyles();
   updateMeta();
-  pushStage();
+  requestAnimationFrame(loop);
 }
-
 init();

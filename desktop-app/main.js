@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 const path = require("node:path");
 const http = require("node:http");
 const fs = require("node:fs");
@@ -6,7 +6,7 @@ const { generateScene } = require("./ai");
 
 const REPO_OWNER = "AlanLumier";
 const REPO_NAME = "code-frame-studio";
-const APP_VERSION = "0.7.0";
+const APP_VERSION = "0.8.0";
 const ROOT = __dirname;
 
 let mainWindow = null;
@@ -133,20 +133,46 @@ function createWindow(port) {
   mainWindow.webContents.on("render-process-gone", (_event, details) => log(`renderer gone ${JSON.stringify(details)}`));
 }
 
-app.whenReady().then(async () => {
-  log("ready");
-  Menu.setApplicationMenu(null);
-  let port = 0;
-  try {
-    port = await startStaticServer();
-  } catch (error) {
-    console.error("static server failed", error);
-  }
-  createWindow(port);
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(port);
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", async () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: "question",
+      buttons: ["退出并重启", "保留当前窗口"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      title: "codemv 已在运行",
+      message: "codemv 已经在运行",
+      detail: "是否退出当前实例并重新启动？",
+    });
+    if (result.response === 0) {
+      app.relaunch();
+      app.exit(0);
+    }
   });
-});
+
+  app.whenReady().then(async () => {
+    log("ready");
+    Menu.setApplicationMenu(null);
+    let port = 0;
+    try {
+      port = await startStaticServer();
+    } catch (error) {
+      console.error("static server failed", error);
+    }
+    createWindow(port);
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(port);
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
@@ -220,6 +246,15 @@ ipcMain.handle("check-update", async () => {
 ipcMain.handle("open-external", (_event, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) return shell.openExternal(url);
   return null;
+});
+
+ipcMain.handle("save-file", async (_event, options) => {
+  const { defaultName = "codemv-export", filters = [], text = "", sourcePath = "" } = options || {};
+  const result = await dialog.showSaveDialog(mainWindow, { defaultPath: defaultName, filters });
+  if (result.canceled || !result.filePath) return null;
+  if (sourcePath && fs.existsSync(sourcePath)) fs.copyFileSync(sourcePath, result.filePath);
+  else fs.writeFileSync(result.filePath, text, "utf8");
+  return result.filePath;
 });
 
 ipcMain.handle("app-info", () => ({
