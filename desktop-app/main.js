@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const execFileAsync = promisify(execFile);
-const { generateScene } = require("./ai");
+const { generateScene, chat } = require("./ai");
 
 const REPO_OWNER = "AlanLumier";
 const REPO_NAME = "code-frame-studio";
@@ -273,6 +273,11 @@ ipcMain.handle("netease-lyric", async (_event, id) => {
   const tlyric = (data && data.tlyric && data.tlyric.lyric) || "";
   if (!lrc.trim()) throw new Error("这首歌没有可用的 LRC 歌词");
   return { lrc, tlyric };
+});
+
+ipcMain.handle("ai-chat", async (_event, messages) => {
+  const text = await chat(Array.isArray(messages) ? messages : []);
+  return { text };
 });
 
 ipcMain.handle("generate-scene", async (_event, payload) => {

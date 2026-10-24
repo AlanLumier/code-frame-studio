@@ -139,4 +139,18 @@ async function generateScene(payload) {
   throw new Error(lastError ? lastError.message : "AI 生成失败");
 }
 
-module.exports = { buildMessages, generateScene, cleanCode, isCompleteFunction };
+async function chat(messages) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await callAI(messages);
+    } catch (error) {
+      lastError = error;
+      const rateLimited = /402|free limit|FREE_LIMIT/i.test(String(error.message));
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, rateLimited ? 32000 : 1200));
+    }
+  }
+  throw new Error(lastError ? lastError.message : "AI 生成失败");
+}
+
+module.exports = { buildMessages, generateScene, chat, cleanCode, isCompleteFunction };

@@ -1,5 +1,9 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
+contextBridge.exposeInMainWorld("codemvAI", {
+  chat: (messages) => ipcRenderer.invoke("ai-chat", messages),
+});
+
 contextBridge.exposeInMainWorld("codemv", {
   generateScene: (payload) => ipcRenderer.invoke("generate-scene", payload),
   neteaseSearch: (keywords) => ipcRenderer.invoke("netease-search", keywords),
