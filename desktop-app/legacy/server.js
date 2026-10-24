@@ -415,6 +415,31 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    /* 内置无 Key AI：网页端与桌面端共用，不需要 preload 桥 */
+    if (u.pathname === "/api/ai/chat" && req.method === "POST") {
+      let raw = "";
+      try {
+        for await (const chunk of req) raw += chunk;
+        const payload = JSON.parse(raw || "{}");
+        const messages = Array.isArray(payload.messages) ? payload.messages : [];
+        const upstream = await fetch("https://text.pollinations.ai/openai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "User-Agent": "codemv" },
+          body: JSON.stringify({ model: "openai", messages, max_tokens: 2200, temperature: 0.7, referrer: "codemv" })
+        });
+        const data = await upstream.json().catch(() => ({}));
+        const text = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : "";
+        if (!upstream.ok || !text) {
+          sendJson(res, 502, { ok: false, error: "AI 服务 " + upstream.status + "（免费模型每约 30 秒一次）" });
+          return;
+        }
+        sendJson(res, 200, { ok: true, text: text });
+      } catch (err) {
+        sendJson(res, 502, { ok: false, error: String((err && err.message) || err) });
+      }
+      return;
+    }
+
     if (u.pathname === "/api/audio") {
       const id = u.searchParams.get("id") || "";
       const target =

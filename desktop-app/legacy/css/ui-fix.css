@@ -1,0 +1,10 @@
+/* 旧界面遮挡修正：让检查器可滚动、底部按钮固定可见 */
+.inspector { overflow-y: auto !important; min-height: 0 !important; }
+.inspector .tab-panel { padding-bottom: 96px; }
+.inspector-foot { position: sticky; bottom: 0; z-index: 20; background: rgba(8, 9, 12, .96); backdrop-filter: blur(12px); }
+.style-list { max-height: 46vh; overflow-y: auto; }
+@media (max-height: 820px) {
+  .inspector .tab-panel { padding-bottom: 84px; }
+  .style-list { max-height: 38vh; }
+}
+body { -webkit-font-smoothing: antialiased; }
