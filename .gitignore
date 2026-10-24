@@ -58,3 +58,6 @@ desktop-app/.edge-profile/
 
 # 新版 Edge 配置
 desktop-app/.edge-profile-v2/
+
+# Edge app profile
+desktop-app/.edge-profile*/
