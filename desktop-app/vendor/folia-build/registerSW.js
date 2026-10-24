@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/vendor/folia-build/sw.js', { scope: '/vendor/folia-build/' })})}

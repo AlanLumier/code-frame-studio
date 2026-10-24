@@ -1,0 +1,9 @@
+{
+  "upstream": "https://github.com/chthollyphile/folia-major.git",
+  "branch": "(default)",
+  "commit": "d7bce036affb645bb407cff5409a53f0bffeb9f4",
+  "builtAt": "2026-10-18T04:29:05.621Z",
+  "sizeMB": 19.49,
+  "license": "AGPL-3.0",
+  "note": "Folia 构建产物，AGPL-3.0；iframe 接入见 docs/FOLIA-BUILD.md"
+}

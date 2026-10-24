@@ -1,0 +1,1 @@
+import{WebGLRenderer as e}from"./lib-15taglYD.js";export{e as WebGLRenderer};
