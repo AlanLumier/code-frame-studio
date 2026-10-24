@@ -48,21 +48,22 @@
     var s = NS.__getFoliaState ? (NS.__getFoliaState(0) || {}) : {};
     var lines = s.lines || [];
     var ref = window.LEMO_REF;
-    var lyrics = lines.slice(0, 80).map(function (l) {
-      return "[" + (l.time != null ? l.time : l.start) + "s] " + l.text;
-    }).join("\n");
-    return [
-      "你是一名逐帧动画程序员。只输出一个完整、可直接运行的 JavaScript 函数：",
-      "function drawScene(ctx, f) { ... }",
-      "ctx 是 Canvas 2D；f.w/f.h 是画布尺寸；f.t 是当前秒；f.beat 节拍 0~1；f.energy 响度 0~1；f.progress 本句进度；f.line 当前歌词；f.palette 色板；f.rand(i) 确定性随机。",
-      "禁止网络、DOM、文件、定时器、eval；禁止绘制文字。代码 50~110 行，必须完整闭合。",
-      "歌曲：" + (s.title || "未命名") + " — " + (s.artist || ""),
-      "时长：" + (s.duration || 0) + " 秒。",
-      ref ? "目标风格（Lemo 参考）：" + ref.cn + " / " + ref.en : "目标风格：由你根据歌词决定。",
-      ref && ref.md ? "风格说明（学手法，不抄内容）：\n" + ref.md.slice(0, 2000) : "",
-      "歌词：\n" + lyrics,
-      "请输出完整函数代码，不要 markdown 代码块。"
-    ].filter(Boolean).join("\n\n");
+    var base = "";
+    try {
+      base = NS.sceneCode.buildPrompt({
+        lines: lines,
+        duration: s.duration || 0,
+        sections: s.sections || []
+      });
+    } catch (e) {
+      base = "请按 CodeMV 的 drawScene(ctx, f) 规则输出代码。画布尺寸用 f.W / f.H，色板用 f.pal，当前歌词用 f.line，时间用 f.t。只输出函数体，不要 markdown。";
+    }
+    if (ref) {
+      base += "\n\n【额外风格参考（Lemo）】\n风格：" + ref.cn + " / " + ref.en +
+        "\n说明：\n" + (ref.md ? ref.md.slice(0, 1800) : "按该电影风格的构图、材质、光线和剪辑节奏处理。") +
+        "\n只学手法，不要照抄参考内容；仍然必须让每句歌词有具体画面。";
+    }
+    return base;
   }
 
   function clean(text) {
@@ -76,11 +77,11 @@
     hint.textContent = "正在生成画面代码…（免费模型每约 30 秒一次）";
     try {
       var text = await chatAI([
-        { role: "system", content: "你是逐帧动画程序员，只输出完整可运行的 drawScene 代码，不解释。" },
+        { role: "system", content: "你是 CodeMV 的 Canvas 分镜程序员。严格按用户提示词里的 API 和语法规则，只输出可直接运行的函数体代码，不要解释、不要 markdown。" },
         { role: "user", content: buildPrompt() }
       ]);
       var code = clean(text);
-      if (!/function\s+drawScene/.test(code)) throw new Error("模型没有返回 drawScene 函数");
+      if (code.length < 20) throw new Error("模型返回为空");
       codeText.value = code;
       codeHint.textContent = "AI 已写入代码，正在运行…";
       hint.textContent = "已生成，正在运行。";
