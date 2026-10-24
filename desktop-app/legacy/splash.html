@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark">
+<title>Code MV</title>
+<link rel="icon" href="icons/favicon.png" type="image/png">
+<style>
+  html, body { margin: 0; height: 100%; background: #08090c; }
+  body { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; color: #ffb35c; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; overflow: hidden; }
+  svg { width: 64px; height: 64px; filter: drop-shadow(0 0 22px rgba(255,179,92,.45)); animation: breathe 1.2s ease-in-out infinite; }
+  span { font-size: 13px; letter-spacing: .18em; color: rgba(255,255,255,.45); }
+  @keyframes breathe { 0%,100% { opacity: .65; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.02); } }
+</style>
+</head>
+<body>
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#ffb35c" d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/></svg>
+  <span>CODE MV</span>
+  <script>
+    // 先显示深色启动页，页面加载完成后再进入主界面，避免 Edge 闪白。
+    setTimeout(function () { location.replace("/?t=" + Date.now()); }, 220);
+  </script>
+</body>
+</html>

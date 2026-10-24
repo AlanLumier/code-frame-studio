@@ -42,7 +42,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     spawn("cmd", ["/c", "start", "", `http://127.0.0.1:${PORT}/`], { stdio: "ignore", windowsHide: true, detached: true }).unref();
     return;
   }
-  const profile = path.join(ROOT, ".edge-profile-v3");
+  const profile = path.join(ROOT, ".edge-profile-v4");
   fs.mkdirSync(profile, { recursive: true });
   const view = spawn(EDGE, [
     `--app=http://127.0.0.1:${PORT}/`,
@@ -50,6 +50,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     `--user-data-dir=${profile}`,
     "--no-first-run",
     "--no-default-browser-check",
+    "--force-dark-mode",
+    "--default-background-color=ff08090c",
   ], { stdio: "ignore", windowsHide: true, detached: true });
   view.unref();
 })();
