@@ -1124,6 +1124,21 @@
 "image": "/style-library/img/glass-product_0.jpg"
 }
 ];
+  // 每个 Lemo 风格使用不同色板 / 运动 / 纹理，避免 59 个卡片看起来一模一样。
+  var PALS = Object.keys(NS.styleLibrary.PALETTES);
+  var MOTIONS = ["drift", "pulse", "orbit", "fall", "flow", "sway", "rise", "spin", "wipe"];
+  var TEX = ["grain", "scanlines", "dots", "halftone", "none"];
+  var OVER = ["vignette", "frame", "corners", "bars", "none"];
+  var LYR = ["glow", "plain", "outline", "block", "mono", "spaced"];
+  var FORMS = [["orbs", "lines"], ["grid", "dots"], ["shards", "arcs"], ["blocks", "steps"], ["ribbons", "halo"], ["waves", "rings"], ["burst", "dots"], ["vortex", "orbs"], ["rings", "radialBars"], ["none", "lines"]];
+  LEMO.forEach(function (s, i) {
+    s.palette = PALS[(i * 5 + 3) % PALS.length];
+    s.motion = MOTIONS[(i * 2) % MOTIONS.length];
+    s.texture = TEX[(i * 3) % TEX.length];
+    s.overlay = OVER[(i * 2) % OVER.length];
+    s.lyric = LYR[(i * 5) % LYR.length];
+    s.forms = FORMS[(i * 7) % FORMS.length];
+  });
   if (!NS.styleLibrary.CATEGORIES.some(function (c) { return c.id === "lemo"; })) {
     NS.styleLibrary.CATEGORIES.unshift({ id: "lemo", name: "Lemo 风格", desc: "59 种电影风格，和 AI 提示词打通" });
   }
