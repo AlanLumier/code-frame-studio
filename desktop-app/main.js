@@ -12,6 +12,31 @@ const ROOT = __dirname;
 let mainWindow = null;
 let staticServer = null;
 
+// 固定到应用目录下的可写数据目录，避免 Electron 在 AppData 权限异常时启动即崩。
+const DATA_DIR = path.join(__dirname, "..", ".userdata");
+try {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  app.setPath("userData", DATA_DIR);
+} catch (error) {
+  console.error("userData setup failed", error);
+}
+
+// 这台机器的 GPU/ANGLE 初始化会让 Electron 直接退出，强制软件渲染保证能启动。
+app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-gpu-compositing");
+app.commandLine.appendSwitch("enable-unsafe-swiftshader");
+
+const LOG = path.join(DATA_DIR, "startup.log");
+function log(message) {
+  try {
+    fs.appendFileSync(LOG, `[${new Date().toISOString()}] ${message}\n`);
+  } catch {
+    /* ignore */
+  }
+}
+process.on("uncaughtException", (error) => log(`uncaught: ${error.stack || error.message}`));
+log("app start");
+
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -103,9 +128,13 @@ function createWindow(port) {
     },
   });
   mainWindow.loadURL(`http://127.0.0.1:${port}/renderer/index.html`);
+  log("window created");
+  mainWindow.on("closed", () => log("window closed"));
+  mainWindow.webContents.on("render-process-gone", (_event, details) => log(`renderer gone ${JSON.stringify(details)}`));
 }
 
 app.whenReady().then(async () => {
+  log("ready");
   Menu.setApplicationMenu(null);
   let port = 0;
   try {

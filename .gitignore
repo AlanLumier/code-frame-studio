@@ -46,3 +46,6 @@ lemo-opuscar/
 
 # 本地 ffmpeg 二进制
 tools/ffmpeg/
+
+# Electron 本地数据
+.userdata/
