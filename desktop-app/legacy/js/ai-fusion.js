@@ -63,11 +63,51 @@
         "\n说明：\n" + (ref.md ? ref.md.slice(0, 1800) : "按该电影风格的构图、材质、光线和剪辑节奏处理。") +
         "\n只学手法，不要照抄参考内容；仍然必须让每句歌词有具体画面。";
     }
+    base += "\n\n【输出格式硬性要求】\n" +
+      "只输出代码本身，不要 function drawScene(...) 包裹，不要 markdown 代码块，不要解释。\n" +
+      "代码中禁止出现中文标点、中文引号、全角括号；注释也尽量不写。\n" +
+      "输出前在脑内用 new Function('ctx','f', code) 编译一遍，确认没有语法错误。";
     return base;
   }
 
   function clean(text) {
-    return String(text || "").replace(/^```[a-zA-Z]*\s*/, "").replace(/```\s*$/, "").trim();
+    var raw = String(text || "").replace(/\r\n/g, "\n").replace(/\uFEFF/g, "").trim();
+    var fenced = raw.match(/```(?:js|javascript)?\s*([\s\S]*?)```/i);
+    if (fenced) raw = fenced[1];
+    raw = raw.replace(/^```[^\n]*\n?/i, "").replace(/```[\s\S]*$/i, "").trim();
+
+    // 去掉模型在代码前写的解释行，只保留第一个像代码的行。
+    var lines = raw.split("\n");
+    var start = 0;
+    var codeStart = /^\s*(?:\/\/|\/\*|var\s|let\s|const\s|function\s|\(|for\s*\(|if\s*\(|ctx\.|f\.|[A-Za-z_$][\w$]*\s*=)/;
+    while (start < lines.length && !codeStart.test(lines[start])) start += 1;
+    if (start > 0 && start < lines.length) raw = lines.slice(start).join("\n");
+
+    // 全角标点/中文引号是 new Function 报 Invalid or unexpected token 的常见原因。
+    raw = raw
+      .replace(/[\u201c\u201d]/g, "\"")
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/（/g, "(")
+      .replace(/）/g, ")")
+      .replace(/，/g, ",")
+      .replace(/；/g, ";")
+      .replace(/：/g, ":")
+      .replace(/。/g, ".")
+      .replace(/！/g, "!")
+      .replace(/？/g, "?")
+      .replace(/、/g, ",")
+      .replace(/【/g, "[")
+      .replace(/】/g, "]");
+    return raw.trim();
+  }
+
+  function syntaxError(code) {
+    try {
+      new Function("ctx", "f", code);
+      return "";
+    } catch (error) {
+      return String((error && error.message) || error);
+    }
   }
 
   async function generateCode(hint) {
@@ -81,10 +121,26 @@
         { role: "user", content: buildPrompt() }
       ]);
       var code = clean(text);
-      if (code.length < 20) throw new Error("模型返回为空");
+      var error = syntaxError(code);
+      if (error && code.length > 20) {
+        hint.textContent = "检测到语法错误，正在让模型自动修复…";
+        var fixed = await chatAI([
+          { role: "system", content: "你是 JavaScript 语法修复器。只输出修复后的完整函数体，不要解释、不要 markdown。" },
+          { role: "user", content: "下面的 CodeMV drawScene 代码有语法错误：" + error + "\n\n" + code + "\n\n请只输出修复后的完整函数体，使用 f.W/f.H/f.pal/f.line 等旧项目 API，不要使用中文标点。" }
+        ]);
+        code = clean(fixed);
+        error = syntaxError(code);
+      }
+      if (!code || code.length < 20) throw new Error("模型返回为空");
+      if (error) {
+        codeText.value = code;
+        codeHint.textContent = "语法错误：" + error;
+        hint.textContent = "生成结果仍有语法错误，已填入代码区供检查；可再点一次生成。";
+        return;
+      }
       codeText.value = code;
-      codeHint.textContent = "AI 已写入代码，正在运行…";
-      hint.textContent = "已生成，正在运行。";
+      codeHint.textContent = "语法校验通过，正在运行…";
+      hint.textContent = "已生成并通过语法校验，正在运行。";
       var run = document.getElementById("btnCodeRun");
       if (run) setTimeout(function () { run.click(); }, 120);
     } catch (error) {
