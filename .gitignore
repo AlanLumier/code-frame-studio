@@ -49,3 +49,6 @@ tools/ffmpeg/
 
 # Electron 本地数据
 .userdata/
+
+# 临时测试脚本
+js/.*.mjs
