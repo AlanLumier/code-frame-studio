@@ -239,45 +239,15 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === "/api/update/check") {
       let localInfo = {};
       try { localInfo = JSON.parse(fs.readFileSync(path.join(ROOT, "version.json"), "utf8")); } catch (e) {}
-      const localFull = await new Promise((resolve) => {
-        execFile("git", ["-C", ROOT, "rev-parse", "HEAD"], { timeout: 5000 }, (err, stdout) => {
-          resolve(err ? "" : String(stdout || "").trim());
-        });
-      });
-      let remote = [];
-      try {
-        const gh = await fetch("https://api.github.com/repos/AlanLumier/code-mv/commits?sha=main&per_page=8", {
-          headers: { "User-Agent": "code-mv", Accept: "application/vnd.github+json" }
-        });
-        if (!gh.ok) throw new Error("GitHub API " + gh.status);
-        const list = await gh.json();
-        remote = list.map((c) => ({
-          sha: c.sha,
-          short: String(c.sha || "").slice(0, 7),
-          message: (c.commit && c.commit.message || "").split("\n")[0],
-          date: c.commit && c.commit.committer && c.commit.committer.date
-        }));
-      } catch (err) {
-        sendJson(res, 502, { ok: false, error: "无法访问 GitHub：" + String(err.message || err) });
-        return;
-      }
-      const latest = remote[0] || null;
-      let behind = 0;
-      if (latest && localFull) {
-        if (localFull !== latest.sha) {
-          const idx = remote.findIndex((c) => c.sha === localFull);
-          behind = idx >= 0 ? idx : remote.length;
-        }
-      } else if (latest) {
-        behind = remote.length;
-      }
       sendJson(res, 200, {
         ok: true,
-        local: { version: localInfo.version || "0.0.0", commit: localFull ? localFull.slice(0, 7) : "" },
-        latest: latest ? { commit: latest.short, message: latest.message, date: latest.date } : null,
-        behind: behind,
-        upToDate: behind === 0,
-        commits: remote.slice(0, Math.max(1, Math.min(behind + 1, 8)))
+        local: { version: localInfo.version || "0.0.0", commit: localInfo.version || "便携版" },
+        latest: null,
+        behind: 0,
+        upToDate: true,
+        commits: [],
+        portable: true,
+        note: "便携版不支持 git 自动更新，重新下载新版即可"
       });
       return;
     }
@@ -303,6 +273,8 @@ const server = http.createServer(async (req, res) => {
 
     /* 拉取更新（git pull --ff-only） */
     if (u.pathname === "/api/update/pull" && req.method === "POST") {
+      sendJson(res, 200, { ok: false, error: "便携版不支持 git 自动更新，请重新下载新版" });
+      return;
       const git = (args) => new Promise((resolve) => {
         execFile("git", ["-C", ROOT].concat(args), { timeout: 20000 }, (err, stdout, stderr) => {
           resolve({ err, out: String(stdout || "").trim(), errout: String(stderr || "").trim() });
