@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron")
 const path = require("node:path");
 const http = require("node:http");
 const fs = require("node:fs");
+const { execFile } = require("node:child_process");
+const { promisify } = require("node:util");
+const execFileAsync = promisify(execFile);
 const { generateScene } = require("./ai");
 
 const REPO_OWNER = "AlanLumier";
@@ -246,6 +249,34 @@ ipcMain.handle("check-update", async () => {
 ipcMain.handle("open-external", (_event, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) return shell.openExternal(url);
   return null;
+});
+
+
+ipcMain.handle("export-video", async (_event, options) => {
+  const { data, audioPath = "", title = "codemv" } = options || {};
+  const tmp = path.join(DATA_DIR, "video-" + Date.now() + ".webm");
+  fs.writeFileSync(tmp, Buffer.from(data));
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: title + ".mp4",
+    filters: [{ name: "MP4 视频", extensions: ["mp4"] }],
+  });
+  if (result.canceled || !result.filePath) {
+    try { fs.unlinkSync(tmp); } catch {}
+    return null;
+  }
+  const ffmpeg = path.join(ROOT, "..", "tools", "ffmpeg", "ffmpeg.exe");
+  if (fs.existsSync(ffmpeg) && audioPath && fs.existsSync(audioPath)) {
+    await execFileAsync(ffmpeg, [
+      "-y", "-i", tmp, "-i", audioPath, "-map", "0:v:0", "-map", "1:a:0",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+      "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", result.filePath,
+    ]);
+    try { fs.unlinkSync(tmp); } catch {}
+    return result.filePath;
+  }
+  const webm = result.filePath.replace(/\.mp4$/i, ".webm");
+  fs.renameSync(tmp, webm);
+  return webm;
 });
 
 ipcMain.handle("save-file", async (_event, options) => {

@@ -21,7 +21,9 @@
       <span id="songMeta">导入音乐和歌词后开始</span>
     </div>
     <div class="top-actions">
-      <button class="btn" id="btnExport">导出</button>
+      <button class="btn" id="btnImmersive">沉浸</button>
+      <button class="btn" id="btnTheme">主题</button>
+      <button class="btn" id="btnExportVideo" disabled>导出视频</button>
       <button class="btn primary" id="btnSettings">设置</button>
     </div>
   </header>
@@ -137,7 +139,12 @@
                 <option value="still">静帧 still</option>
               </select>
             </label>
+            <label class="field"><span>歌词偏移 (ms)</span><input id="setOffset" type="number" step="50" value="0"></label>
             <p class="muted">本地 Canvas 渲染，不依赖 Folia 账号。</p>
+          </div>
+          <div class="settings-group">
+            <div class="section-title">文字画布</div>
+            <div class="preset-grid" id="presetGrid"></div>
           </div>
           <div class="settings-group">
             <div class="section-title">更新</div>
@@ -169,6 +176,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="immersive-tip">Esc 退出沉浸模式</div>
 <input id="fileAudio" type="file" accept="audio/*" hidden>
 <input id="fileLyrics" type="file" accept=".lrc,.txt,text/plain" hidden>
 <audio id="audio" preload="metadata"></audio>

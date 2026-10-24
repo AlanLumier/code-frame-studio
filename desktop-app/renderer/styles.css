@@ -277,3 +277,160 @@ body[data-theme="light"] .toast { background: #fff; }
 .hidden { display: none !important; }
 .btn:disabled { opacity: .42; cursor: not-allowed; }
 .btn:disabled:hover { border-color: var(--border); background: var(--panel-2); }
+
+/* ==========================================================================
+   Code MV · 旧项目 V2 主题（转载）
+   ========================================================================== */
+:root {
+  --bg: #08090c;
+  --bg-2: #0d0f15;
+  --panel: rgba(21, 24, 31, 0.78);
+  --panel-solid: #12151c;
+  --panel-line: rgba(255, 255, 255, 0.075);
+  --text: #f2f4f9;
+  --text-2: #a7afc1;
+  --text-3: #6c7486;
+  --accent: #ffb35c;
+  --accent-2: #5ce1c6;
+  --radius: 16px;
+}
+body[data-theme="dark"] {
+  --bg: #08090c;
+  --panel: rgba(21, 24, 31, 0.78);
+  --border: rgba(255, 255, 255, 0.075);
+  --text: #f2f4f9;
+  --muted: #a7afc1;
+  background:
+    radial-gradient(900px 620px at 8% -8%, rgba(255, 179, 92, 0.12), transparent 62%),
+    radial-gradient(760px 560px at 96% 4%, rgba(92, 225, 198, 0.1), transparent 60%),
+    radial-gradient(1000px 800px at 50% 120%, rgba(90, 110, 255, 0.08), transparent 65%),
+    #08090c;
+  font-family: "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+}
+body[data-theme="light"] {
+  --bg: #f3f1ec;
+  --panel: rgba(255, 255, 255, 0.72);
+  --border: rgba(23, 24, 28, 0.1);
+  --text: #17181c;
+  --muted: #4a4f5c;
+  --accent: #c25a1f;
+  --accent-2: #0f766e;
+  background:
+    radial-gradient(900px 620px at 6% -10%, rgba(194, 90, 31, 0.12), transparent 60%),
+    radial-gradient(760px 560px at 96% 0%, rgba(15, 118, 110, 0.1), transparent 58%),
+    #f3f1ec;
+}
+.topbar {
+  height: 64px;
+  padding: 0 24px 0 20px;
+  gap: 18px;
+  border-bottom: 1px solid var(--panel-line);
+  background: rgba(8, 9, 12, 0.42);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+body[data-theme="light"] .topbar { background: rgba(255, 255, 255, 0.44); }
+.logo { fill: var(--accent); filter: drop-shadow(0 0 12px rgba(255, 179, 92, .45)); }
+.brand-name { font-weight: 650; letter-spacing: .02em; }
+.brand-sub { color: var(--text-3); letter-spacing: .08em; }
+.btn {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--panel-line);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 7px 13px;
+}
+.btn:hover { border-color: var(--accent); background: rgba(255, 179, 92, .1); }
+.btn.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+  color: #1b1206;
+  font-weight: 650;
+}
+.rail, .panel, .transport {
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-color: var(--panel-line);
+}
+.rail-btn { border-radius: 12px; }
+.rail-btn.active {
+  background: linear-gradient(135deg, rgba(255, 179, 92, .18), rgba(92, 225, 198, .12));
+  border-color: rgba(255, 179, 92, .45);
+  color: var(--text);
+}
+.stage-frame {
+  border-radius: 16px;
+  border-color: var(--panel-line);
+  box-shadow: 0 24px 60px -30px rgba(0, 0, 0, .8);
+}
+.stage-badge { border-color: var(--panel-line); color: var(--text-2); }
+.panel-head { border-bottom-color: var(--panel-line); }
+.badge { border-color: var(--panel-line); color: var(--text-3); }
+.song-card, .settings-group, .style-foot, .ns-item { background: rgba(255, 255, 255, .035); border-color: var(--panel-line); }
+.panel-body { scrollbar-color: var(--panel-line) transparent; }
+.seek { accent-color: var(--accent); }
+
+/* 文字画布预设 */
+.preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.preset-card {
+  border: 1px solid var(--panel-line); border-radius: 10px; padding: 9px 10px;
+  background: rgba(255, 255, 255, .03); cursor: pointer; text-align: left;
+  transition: border-color .15s, background .15s, transform .1s;
+}
+.preset-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.preset-card.active { border-color: var(--accent); background: rgba(255, 179, 92, .1); }
+.preset-card b { display: block; font-size: 12px; }
+.preset-card span { display: block; color: var(--text-3); font-size: 10px; margin-top: 2px; }
+.field input[type="number"] {
+  width: 96px; background: rgba(255,255,255,.04); border: 1px solid var(--panel-line);
+  border-radius: 8px; padding: 6px 8px; color: var(--text);
+}
+
+/* 沉浸模式 */
+body.immersive .topbar, body.immersive .rail, body.immersive .panel, body.immersive .transport { display: none; }
+body.immersive .workspace { grid-template-columns: 0 minmax(0, 1fr) 0; }
+body.immersive .stage-wrap { padding: 0; }
+body.immersive .stage-frame { border-radius: 0; border: none; }
+body.immersive .stage-badge, body.immersive .stage-hint { opacity: 0; }
+.immersive-tip {
+  position: fixed; right: 18px; bottom: 18px; z-index: 60; display: none;
+  font-size: 11px; color: rgba(255,255,255,.55); background: rgba(8,10,14,.6);
+  border: 1px solid var(--panel-line); border-radius: 14px; padding: 6px 11px;
+}
+body.immersive .immersive-tip { display: block; }
+
+/* 浅色主题可读性修正 */
+body[data-theme="light"] .btn,
+body[data-theme="light"] .rail-btn,
+body[data-theme="light"] .panel-head,
+body[data-theme="light"] .field,
+body[data-theme="light"] .section-title,
+body[data-theme="light"] .song b,
+body[data-theme="light"] .brand-name,
+body[data-theme="light"] .style-card b,
+body[data-theme="light"] .preset-card b,
+body[data-theme="light"] .lyric-item .x {
+  color: #17181c;
+}
+body[data-theme="light"] .muted,
+body[data-theme="light"] .song span,
+body[data-theme="light"] .brand-sub,
+body[data-theme="light"] .badge,
+body[data-theme="light"] .preset-card span,
+body[data-theme="light"] .style-card small,
+body[data-theme="light"] .lyric-item .t {
+  color: #4a4f5c;
+}
+body[data-theme="light"] .btn:hover { background: rgba(194, 90, 31, .08); }
+body[data-theme="light"] .rail-btn.active { color: #17181c; }
+body[data-theme="light"] .topbar { background: rgba(255,255,255,.62); }
+body[data-theme="light"] .settings-group,
+body[data-theme="light"] .song-card,
+body[data-theme="light"] .style-foot,
+body[data-theme="light"] .ns-item { background: rgba(255,255,255,.55); }
+body[data-theme="light"] .field select,
+body[data-theme="light"] .search-row input,
+body[data-theme="light"] .field input[type="number"] {
+  background: #fff; color: #17181c; border-color: rgba(23,24,28,.14);
+}

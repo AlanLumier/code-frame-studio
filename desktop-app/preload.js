@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("codemv", {
   neteaseSearch: (keywords) => ipcRenderer.invoke("netease-search", keywords),
   neteaseLyric: (id) => ipcRenderer.invoke("netease-lyric", id),
   saveFile: (options) => ipcRenderer.invoke("save-file", options),
+  exportVideo: (options) => ipcRenderer.invoke("export-video", options),
   getPathForFile: (file) => {
     try {
       return webUtils.getPathForFile(file) || "";

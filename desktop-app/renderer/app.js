@@ -7,12 +7,32 @@ const ctx = canvas.getContext("2d");
 
 const DEFAULT_SETTINGS = {
   theme: "dark",
-  accent: "#e8553a",
+  accent: "#ffb35c",
   size: 100,
   pos: "bottom",
   mode: "fume",
+  preset: "center",
+  offset: 0,
   style: "",
 };
+const PRESETS = [
+  { id: "center", name: "居中", desc: "经典居中 / 白字", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 700, color: "#ffffff", glow: 0, pos: "center" },
+  { id: "bottom", name: "底部", desc: "播放器底部字幕", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 600, color: "#ffffff", glow: 10, pos: "bottom" },
+  { id: "big", name: "大字", desc: "海报感大字", font: '"Arial Black","Microsoft YaHei",sans-serif', weight: 800, color: "#ffffff", glow: 0, pos: "center" },
+  { id: "minimal", name: "极简", desc: "细字 / 大留白", font: '"Segoe UI","Microsoft YaHei",sans-serif', weight: 300, color: "rgba(255,255,255,.86)", glow: 0, pos: "bottom" },
+  { id: "kala", name: "卡拉OK", desc: "逐字高亮", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 700, color: "#ffffff", glow: 16, pos: "bottom" },
+  { id: "neon", name: "霓虹", desc: "青色发光", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 700, color: "#6ee7ff", glow: 30, pos: "center" },
+  { id: "sunset", name: "日落", desc: "暖橙 / 柔光", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 700, color: "#ffb35c", glow: 26, pos: "center" },
+  { id: "serif", name: "宋体", desc: "文学感衬线", font: '"Songti SC","SimSun",serif', weight: 600, color: "#f6f1e7", glow: 6, pos: "center" },
+  { id: "hand", name: "手写", desc: "楷体 / 日记感", font: '"Kaiti SC","KaiTi",cursive', weight: 500, color: "#f4e6c6", glow: 4, pos: "bottom" },
+  { id: "mono", name: "等宽", desc: "终端 / 代码感", font: '"Cascadia Code",Consolas,monospace', weight: 500, color: "#d7ffe9", glow: 12, pos: "center" },
+  { id: "outline", name: "描边", desc: "空心字", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 800, color: "transparent", glow: 0, stroke: true, pos: "center" },
+  { id: "left", name: "左对齐", desc: "纪录片字幕", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 600, color: "#ffffff", glow: 0, align: "left", pos: "bottom" },
+  { id: "double", name: "双行", desc: "当前句 + 下一句", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 600, color: "#ffffff", glow: 8, pos: "center" },
+  { id: "retro", name: "复古", desc: "胶片颗粒感", font: '"Songti SC","SimSun",serif', weight: 700, color: "#ffe0a3", glow: 18, pos: "bottom" },
+  { id: "quiet", name: "安静", desc: "低透明度", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 400, color: "rgba(255,255,255,.55)", glow: 0, pos: "bottom" },
+  { id: "poster", name: "海报", desc: "超大 / 居中", font: '"PingFang SC","Microsoft YaHei",sans-serif', weight: 900, color: "#ffffff", glow: 0, size: 1.45, pos: "center" },
+];
 const STYLE_COLORS = {
   "剪辑与纪实": "#e8553a", "实证影像": "#4aa3a2", "手绘与绘画": "#e0a458",
   "东方传统": "#b4463c", "印刷与版画": "#d05a7a", "图形与排版": "#5b8def",
@@ -37,6 +57,8 @@ const state = {
   activeIndex: -1,
   stageW: 960,
   stageH: 540,
+  lrcMeta: { title: "", artist: "" },
+  recording: false,
 };
 
 /* ------------------------------------------------------------------ utils */
@@ -76,9 +98,18 @@ function newer(a, b) {
 /* ------------------------------------------------------------------ LRC */
 function parseLRC(text) {
   const out = [];
+  const meta = { title: "", artist: "", offset: 0 };
   const stamp = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
   for (const raw of String(text || "").split(/\r?\n/)) {
     const line = raw.trim();
+    const tag = line.match(/^\[(ti|ar|al|offset):\s*(.+?)\]\s*$/i);
+    if (tag) {
+      const key = tag[1].toLowerCase();
+      if (key === "ti") meta.title = tag[2].trim();
+      else if (key === "ar") meta.artist = tag[2].trim();
+      else if (key === "offset") meta.offset = parseInt(tag[2], 10) || 0;
+      continue;
+    }
     if (!line || /^\[(ar|ti|al|by|offset|re|ve):/i.test(line)) continue;
     const stamps = [...line.matchAll(stamp)];
     if (!stamps.length) continue;
@@ -86,12 +117,22 @@ function parseLRC(text) {
     if (!content || /^(作词|作曲|编曲|词|曲)\s*[:：]/.test(content) || /^\S+\s+-\s+\S+$/.test(content)) continue;
     for (const m of stamps) {
       const frac = m[3] ? parseInt(m[3].padEnd(3, "0").slice(0, 3), 10) / 1000 : 0;
-      out.push({ start: parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + frac, text: content });
+      out.push({ base: parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + frac, text: content });
     }
   }
-  out.sort((a, b) => a.start - b.start);
-  for (let i = 0; i < out.length; i += 1) out[i].end = i + 1 < out.length ? out[i + 1].start : state.duration || 250;
+  out.sort((a, b) => a.base - b.base);
+  state.lrcMeta = meta;
   return out;
+}
+
+function applyOffset(lines) {
+  const offset = Number(state.settings.offset) || 0;
+  const result = lines.map((line) => ({ ...line, start: Math.max(0, (line.base ?? line.start) + offset / 1000) }));
+  result.sort((a, b) => a.start - b.start);
+  for (let i = 0; i < result.length; i += 1) {
+    result[i].end = i + 1 < result.length ? result[i + 1].start : state.duration || 250;
+  }
+  return result;
 }
 
 function buildLRC() {
@@ -99,13 +140,10 @@ function buildLRC() {
 }
 
 function setLyrics(lines, meta = {}) {
-  state.lines = lines;
+  state.lines = applyOffset(lines);
   if (meta.title) state.title = meta.title;
   if (meta.artist) state.artist = meta.artist;
   if (meta.duration) state.duration = meta.duration;
-  for (let i = 0; i < state.lines.length; i += 1) {
-    state.lines[i].end = i + 1 < state.lines.length ? state.lines[i + 1].start : state.duration || 250;
-  }
   renderLyrics();
   updateMeta();
   $("btnExportLyrics").disabled = !state.lines.length;
@@ -217,42 +255,60 @@ function draw(force = false) {
 
   const line = state.lines[Math.max(0, index)];
   if (!line) return;
-  const scale = state.settings.size / 100;
+  const preset = PRESETS.find((p) => p.id === state.settings.preset) || PRESETS[0];
+  const scale = (state.settings.size / 100) * (preset.size || 1);
   const fontSize = Math.round(Math.min(w, h) * 0.062 * scale);
-  const posFactor = state.settings.pos === "top" ? 0.32 : state.settings.pos === "center" ? 0.5 : 0.72;
+  const posKey = state.settings.pos || preset.pos || "bottom";
+  const posFactor = posKey === "top" ? 0.32 : posKey === "center" ? 0.5 : 0.72;
   const cy = h * posFactor;
+  const align = preset.align || "center";
+  const tx = align === "left" ? w * 0.08 : w / 2;
+  const textAlign = align === "left" ? "left" : "center";
+  const fontOf = (weight, size) => `${weight} ${size}px ${preset.font}`;
 
   ctx.save();
-  ctx.textAlign = "center";
+  ctx.textAlign = textAlign;
   ctx.textBaseline = "middle";
-  ctx.font = `700 ${Math.round(fontSize * 0.42)}px "Microsoft YaHei", "Microsoft YaHei UI", sans-serif`;
+  ctx.font = fontOf(500, Math.round(fontSize * 0.42));
   ctx.fillStyle = "rgba(255,255,255,0.32)";
   const prev = index > 0 ? state.lines[index - 1].text : "";
   const next = index + 1 < state.lines.length ? state.lines[index + 1].text : "";
-  if (prev) ctx.fillText(prev, w / 2, cy - fontSize * 1.35);
-  if (next) ctx.fillText(next, w / 2, cy + fontSize * 1.35);
+  if (prev) ctx.fillText(prev, tx, cy - fontSize * 1.35);
+  if (next) ctx.fillText(next, tx, cy + fontSize * 1.35);
 
-  ctx.font = `700 ${fontSize}px "Microsoft YaHei", "Microsoft YaHei UI", sans-serif`;
-  const maxWidth = w * 0.82;
+  ctx.font = fontOf(preset.weight, fontSize);
+  const maxWidth = w * 0.84;
   const text = line.text;
   const textWidth = Math.min(ctx.measureText(text).width, maxWidth);
-  if (state.settings.mode === "fume" || state.settings.mode === "monet") {
-    ctx.shadowColor = base;
-    ctx.shadowBlur = state.settings.mode === "monet" ? 34 : 22;
+  if (preset.glow > 0) {
+    ctx.shadowColor = preset.color && preset.color !== "transparent" ? preset.color : base;
+    ctx.shadowBlur = preset.glow;
   }
-  ctx.fillStyle = "rgba(255,255,255,0.94)";
-  ctx.fillText(text, w / 2, cy);
+  if (preset.stroke) {
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = Math.max(2, fontSize * 0.035);
+    ctx.strokeText(text, tx, cy);
+  } else {
+    ctx.fillStyle = preset.color || "rgba(255,255,255,0.94)";
+    ctx.fillText(text, tx, cy);
+  }
   // progress highlight
   const duration = Math.max(0.4, line.end - line.start);
   const progress = Math.max(0, Math.min(1, (t - line.start) / duration));
   if (progress > 0) {
+    const clipX = align === "left" ? tx : tx - textWidth / 2;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(w / 2 - textWidth / 2, cy - fontSize, textWidth * progress, fontSize * 2);
+    ctx.rect(clipX, cy - fontSize, textWidth * progress, fontSize * 2);
     ctx.clip();
     ctx.shadowBlur = 0;
-    ctx.fillStyle = accent;
-    ctx.fillText(text, w / 2, cy);
+    if (preset.stroke) {
+      ctx.strokeStyle = accent;
+      ctx.strokeText(text, tx, cy);
+    } else {
+      ctx.fillStyle = accent;
+      ctx.fillText(text, tx, cy);
+    }
     ctx.restore();
   }
   ctx.restore();
@@ -262,7 +318,7 @@ function draw(force = false) {
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillStyle = "rgba(255,255,255,0.5)";
-  ctx.font = `600 ${Math.round(fontSize * 0.28)}px "Microsoft YaHei", sans-serif`;
+  ctx.font = `600 ${Math.round(fontSize * 0.28)}px "PingFang SC", "Microsoft YaHei", sans-serif`;
   ctx.fillText(`${state.title || ""}${state.artist ? " · " + state.artist : ""}`, w * 0.045, h * 0.06);
   ctx.restore();
 }
@@ -296,6 +352,7 @@ function seekTo(t) {
 audio.addEventListener("loadedmetadata", () => {
   state.duration = audio.duration || state.duration;
   $("timeTotal").textContent = fmt(state.duration);
+  if (state.lines.length) state.lines = applyOffset(state.lines);
   updateMeta();
   draw(true);
 });
@@ -348,6 +405,7 @@ $("fileAudio").addEventListener("change", (event) => {
   audio.src = URL.createObjectURL(file);
   audio.load();
   $("btnExportAudio").disabled = false;
+  $("btnExportVideo").disabled = false;
   $("srcBadge").textContent = "本地音频";
   $("welcome").classList.add("hide");
   updateMeta();
@@ -363,7 +421,8 @@ $("fileLyrics").addEventListener("change", async (event) => {
   const lines = parseLRC(text);
   if (!lines.length) toast("没有解析到歌词，请确认是 LRC 文件");
   else {
-    setLyrics(lines);
+    const meta = state.lrcMeta || {};
+    setLyrics(lines, { title: meta.title || state.title, artist: meta.artist || state.artist });
     $("srcBadge").textContent = "本地 LRC";
     setTab("lyrics");
     toast(`歌词已导入（${lines.length} 句）`);
@@ -385,6 +444,7 @@ $("btnClear").addEventListener("click", () => {
   $("welcome").classList.remove("hide");
   $("btnExportAudio").disabled = true;
   $("btnExportLyrics").disabled = true;
+  $("btnExportVideo").disabled = true;
   $("timeNow").textContent = "00:00";
   $("timeTotal").textContent = "00:00";
   $("seek").value = "0";
@@ -419,11 +479,59 @@ async function exportLyrics() {
 }
 $("btnExportAudio").addEventListener("click", exportAudio);
 $("btnExportLyrics").addEventListener("click", exportLyrics);
-$("btnExport").addEventListener("click", () => {
-  if (state.audioFile) exportAudio();
-  else if (state.lines.length) exportLyrics();
-  else toast("先导入音乐或歌词");
-});
+
+/* ------------------------------------------------------------------ 导出视频 */
+let recorder = null;
+let recordChunks = [];
+function stopRecording() {
+  if (recorder && recorder.state !== "inactive") recorder.stop();
+}
+async function exportVideo() {
+  if (!state.audioFile) return toast("先导入音乐");
+  if (state.recording) return stopRecording();
+  if (!window.codemv || !window.codemv.exportVideo) return toast("视频导出需要在桌面应用中使用");
+  const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+    ? "video/webm;codecs=vp9"
+    : "video/webm";
+  try {
+    recordChunks = [];
+    const stream = canvas.captureStream(30);
+    recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 });
+    recorder.ondataavailable = (event) => { if (event.data && event.data.size) recordChunks.push(event.data); };
+    recorder.onstop = async () => {
+      state.recording = false;
+      $("btnExportVideo").textContent = "导出视频";
+      $("status").textContent = "正在封装视频…";
+      audio.pause();
+      try {
+        const blob = new Blob(recordChunks, { type: mime });
+        const data = await blob.arrayBuffer();
+        const file = await window.codemv.exportVideo({
+          data,
+          audioPath: state.audioPath,
+          title: state.title || "codemv",
+        });
+        if (file) toast("视频已导出：" + file);
+        $("status").textContent = file ? "视频已导出" : "已取消导出";
+      } catch (error) {
+        toast("视频导出失败：" + error.message);
+        $("status").textContent = "视频导出失败";
+      }
+    };
+    state.recording = true;
+    $("btnExportVideo").textContent = "停止并保存";
+    $("status").textContent = "正在录制视频（实时）…";
+    audio.currentTime = 0;
+    audio.addEventListener("ended", stopRecording, { once: true });
+    recorder.start(1000);
+    await audio.play();
+  } catch (error) {
+    state.recording = false;
+    $("btnExportVideo").textContent = "导出视频";
+    toast("无法开始录制：" + error.message);
+  }
+}
+$("btnExportVideo").addEventListener("click", exportVideo);
 
 /* ------------------------------------------------------------------ NetEase */
 async function searchNetease() {
@@ -541,6 +649,27 @@ function applyStyle(style, notify = true) {
 $("styleSearch").addEventListener("input", (event) => { state.styleQuery = event.target.value; renderStyles(); });
 
 /* ------------------------------------------------------------------ settings */
+function renderPresets() {
+  const grid = $("presetGrid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  PRESETS.forEach((preset) => {
+    const card = document.createElement("button");
+    card.className = `preset-card${state.settings.preset === preset.id ? " active" : ""}`;
+    card.innerHTML = "<b></b><span></span>";
+    card.querySelector("b").textContent = preset.name;
+    card.querySelector("span").textContent = preset.desc;
+    card.addEventListener("click", () => {
+      state.settings.preset = preset.id;
+      saveSettings();
+      renderPresets();
+      draw(true);
+      toast(`文字画布：${preset.name}`);
+    });
+    grid.appendChild(card);
+  });
+}
+
 function applySettings() {
   document.body.dataset.theme = state.settings.theme;
   document.documentElement.style.setProperty("--accent", state.settings.accent);
@@ -549,6 +678,7 @@ function applySettings() {
   $("setSize").value = String(state.settings.size);
   $("setPos").value = state.settings.pos;
   $("setMode").value = state.settings.mode;
+  $("setOffset").value = String(state.settings.offset || 0);
   draw(true);
 }
 function bindSettings() {
@@ -557,6 +687,29 @@ function bindSettings() {
   $("setSize").addEventListener("input", (event) => { state.settings.size = Number(event.target.value); saveSettings(); draw(true); });
   $("setPos").addEventListener("change", (event) => { state.settings.pos = event.target.value; saveSettings(); draw(true); });
   $("setMode").addEventListener("change", (event) => { state.settings.mode = event.target.value; saveSettings(); draw(true); });
+  $("setOffset").addEventListener("change", (event) => {
+    state.settings.offset = Number(event.target.value) || 0;
+    saveSettings();
+    if (state.lines.length) {
+      state.lines = applyOffset(state.lines);
+      renderLyrics();
+      updateMeta();
+      draw(true);
+    }
+  });
+
+  $("btnTheme").addEventListener("click", () => {
+    state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
+    saveSettings();
+    applySettings();
+    toast(state.settings.theme === "dark" ? "已切换深色主题" : "已切换浅色主题");
+  });
+  $("btnImmersive").addEventListener("click", () => {
+    document.body.classList.toggle("immersive");
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.code === "Escape") document.body.classList.remove("immersive");
+  });
 
   $("btnUpdate").addEventListener("click", async () => {
     const status = $("updateStatus");
@@ -589,6 +742,7 @@ function bindSettings() {
 async function init() {
   applySettings();
   bindSettings();
+  renderPresets();
   resizeCanvas();
   window.addEventListener("resize", () => { resizeCanvas(); draw(true); });
   try {
