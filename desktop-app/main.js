@@ -25,9 +25,13 @@ try {
   console.error("userData setup failed", error);
 }
 
-// 这台机器的 GPU/ANGLE 初始化会让 Electron 直接退出，强制软件渲染保证能启动。
-app.commandLine.appendSwitch("disable-gpu");
-app.commandLine.appendSwitch("disable-gpu-compositing");
+// 这台机器的 GPU/ANGLE 初始化会让 Electron 直接退出；默认软件渲染，
+// 设置 CODEMV_GPU=1 可尝试硬件加速（排查驱动问题时用）。
+if (!process.env.CODEMV_GPU) {
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+}
+app.commandLine.appendSwitch("force-device-scale-factor", "1");
 app.commandLine.appendSwitch("enable-unsafe-swiftshader");
 
 const LOG = path.join(DATA_DIR, "startup.log");
@@ -166,6 +170,15 @@ function createWindow(port, urlPath = "/") {
     },
   });
   mainWindow.loadURL(`http://127.0.0.1:${port}${urlPath}`);
+  mainWindow.webContents.on("did-finish-load", () => {
+    log("did-finish-load title=" + mainWindow.webContents.getTitle());
+    // 软件渲染下最贵的是大面积 backdrop blur；保留配色与布局，只关掉实时模糊。
+    mainWindow.webContents.insertCSS(`
+      * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+      #appBackdrop { animation: none !important; }
+    `).catch(() => {});
+  });
+  mainWindow.webContents.on("did-fail-load", (_e, code, desc, url) => log("did-fail-load " + code + " " + desc + " " + url));
   log("window created");
   mainWindow.on("closed", () => log("window closed"));
   mainWindow.webContents.on("render-process-gone", (_event, details) => log(`renderer gone ${JSON.stringify(details)}`));
